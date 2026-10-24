@@ -25,7 +25,7 @@ Run from the repo root.
 5. **Publish.** `npm run deploy`. Expect `Published` at the end.
 
 6. **Verify.** `./scripts/check-live.sh` (takes up to ~5 min, usually <90s).
-   It polls https://allenye.me until it serves the JS bundle hash in `dist/`.
+   It polls until every HTML page in `dist/` matches what https://allenye.me serves.
 
 7. **Report** in one or two lines: what changed, the commit, and that
    https://allenye.me is live. If verification timed out, say so plainly and
