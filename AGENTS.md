@@ -20,8 +20,23 @@ src/main.tsx      React entry, rarely touched
 index.html        HTML shell: <title>, meta description
 public/           copied as-is into the build (CNAME, images, PDFs)
 public/CNAME      must stay "allenye.me" or the custom domain detaches on deploy
+public/projects/  unlisted project pages (static HTML), see below
 scripts/          helper scripts (check-live.sh)
 ```
+
+## Projects (unlisted)
+
+`/projects` holds share-by-link pages: static HTML in `public/projects/`,
+copied verbatim into the build. Hierarchy is `/projects/<section>/<slug>/`,
+e.g. `/projects/house/bathroom-remodel/`. Each level has an `index.html` that
+lists its children.
+
+- Unlisted, **not private**: anyone with a URL can open it. Real access control
+  is a later TODO (GitHub Pages can't do auth; it would need Cloudflare Access
+  or similar in front).
+- Never link `/projects` from the homepage, and don't add it to robots.txt
+  (that publishes the path). Every page carries `noindex, nofollow`.
+- Use the `add-project` skill to add one.
 
 ## Commands
 
@@ -62,4 +77,5 @@ Claude Code skills in `.claude/skills/`:
 
 - `deploy`: build, commit, deploy, and verify the site is live.
 - `dev`: start the local dev server and open it.
+- `add-project`: add an unlisted page under `/projects` from a file or zip.
 - `site-status`: check DNS, HTTPS, and Pages health when something looks broken.

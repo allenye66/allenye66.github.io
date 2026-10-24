@@ -42,6 +42,21 @@ In Claude Code you can just say "deploy" (or run `/deploy`) and it will do all o
 - **A link:** add an entry to the `links` array in `src/App.tsx`.
 - **A file (resume, image):** drop it in `public/`, then link to `/filename.pdf`.
 - **Page title / description:** `index.html`.
+- **An unlisted project:** put it in `public/projects/<section>/<slug>/index.html`
+  and add a link on the section's `index.html`. Or tell Claude Code
+  "add this to projects/house" (the `add-project` skill).
+
+## Projects (unlisted)
+
+https://allenye.me/projects isn't linked from the homepage, and its pages are
+marked `noindex`, so they're share-by-link only. They are **not private**:
+anyone with a link can open it.
+
+| Page | URL |
+|---|---|
+| Projects | https://allenye.me/projects/ |
+| House | https://allenye.me/projects/house/ |
+| Bathroom remodel (3D model) | https://allenye.me/projects/house/bathroom-remodel/ |
 
 ## Infrastructure
 

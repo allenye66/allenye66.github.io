@@ -1,0 +1,76 @@
+/* Shared styles for /projects pages. Mirrors src/index.css so they match the homepage. */
+:root {
+  --fg: #111;
+  --muted: #666;
+  --bg: #fff;
+  font-family: ui-serif, Georgia, serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #eee;
+    --muted: #999;
+    --bg: #111;
+  }
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 18vh 1.5rem 4rem;
+}
+
+h1 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+p {
+  margin: 0 0 1.5rem;
+  color: var(--muted);
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+li {
+  margin: 0 0 0.5rem;
+}
+
+li span {
+  color: var(--muted);
+}
+
+a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: var(--muted);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  text-decoration-color: var(--fg);
+}
+
+.crumbs {
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.crumbs a {
+  color: var(--muted);
+}
