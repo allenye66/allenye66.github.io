@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: Deploy the site to https://allenye.me. Use when the user says deploy, ship, publish, push it live, or update the site. Builds, commits and pushes source to main, publishes dist/ to the gh-pages branch, and verifies the new build is live.
+description: Deploy the site to https://allenye.me. Use when the user says deploy, ship, publish, push it live, or update the site. Builds, commits and pushes source to master, publishes dist/ to the gh-pages branch, and verifies the new build is live.
 ---
 
 # Deploy allenye.me
@@ -33,8 +33,8 @@ Run from the repo root.
 
 ## Notes
 
-- `npm run deploy` publishes the working tree, not `main`. That's why step 4
-  commits first, so `main` always matches what's live.
+- `npm run deploy` publishes the working tree, not `master`. That's why step 4
+  commits first, so `master` always matches what's live.
 - Rolling back: `git revert <sha>` (or `git checkout <sha> -- <file>`), then
   deploy again. There's no separate rollback button.
 - Never hand-edit or force-push the `gh-pages` branch; every deploy rewrites it.

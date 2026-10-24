@@ -41,9 +41,9 @@ scripts/          helper scripts (check-live.sh)
 `gh-pages -d dist --nojekyll`, which force-pushes `dist/` to the `gh-pages`
 branch. GitHub Pages rebuilds in about 30–90s.
 
-- Pushing to `main` does **not** deploy. `main` is source only.
+- Pushing to `master` does **not** deploy. `master` is source only.
 - Deploy publishes whatever is in the working tree, committed or not.
-  Commit first so `main` matches what's live.
+  Commit first so `master` matches what's live.
 - Don't edit the `gh-pages` branch by hand; every deploy overwrites it.
 
 ## Conventions
