@@ -7,7 +7,7 @@ function App() {
   return (
     <main>
       <h1>Allen Ye</h1>
-      <p>Software engineer in San Francisco.</p>
+      <p>Software engineer in Palo Alto.</p>
       <nav>
         {links.map((link) => (
           <a key={link.href} href={link.href}>
