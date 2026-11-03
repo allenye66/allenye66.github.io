@@ -45,3 +45,19 @@ URL = path under `public/`, e.g. `public/projects/house/bathroom-remodel/index.h
 ## Updating an existing project
 
 Replace the files in its folder and redeploy. The URL stays the same.
+
+**Bathroom remodel** (`/projects/house/bathroom-remodel/`): don't copy a new
+`viewer.html` in by hand. Run it through the patch script, which adds noindex
+plus shareable URL state (every setting mirrored into the query string, and a
+"Copy link to this view" button):
+
+```sh
+python3 -I scripts/patch-viewer.py <extracted>/bathroom-remodel/viewer.html \
+  public/projects/house/bathroom-remodel/index.html
+```
+
+If it exits with "expected 1 match ... found 0", the viewer's `main.js` or
+`template.html` changed around `loadState` / `saveState` / `btnReset`. Update
+the anchors in `scripts/patch-viewer.py` to match, keeping
+`scripts/viewer-url-state.js` as the injected logic. Then preview and confirm:
+change a setting → URL updates; open that URL with localStorage cleared → same view.
