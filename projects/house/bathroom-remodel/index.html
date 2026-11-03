@@ -48,6 +48,7 @@
   .lbl.pipe { font-size: 10.5px; font-weight: 600; color: #1d1d1b; background: rgba(255,255,255,.86); border: 1px solid #c9c7bf; padding: 1px 4px; border-radius: 3px; text-shadow: none; }
   .lbl.pipe.vent { border-color: #2f8f5b; color: #1f6b42; }
   .lbl.pipe.exist { border-color: #8a4b2a; color: #6e3a1f; }
+  .lbl.pipe.water { border-color: #2b7bd6; color: #1d5aa5; }
   .lbl.cut { font-size: 10.5px; font-weight: 700; color: #a3360f; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
   #crosshair { position: absolute; left: 50%; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border: 2px solid rgba(255,255,255,.95); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.35); pointer-events: none; }
   #badge { position: absolute; right: 12px; bottom: 10px; font-size: 11px; color: var(--ink2); background: rgba(252,252,251,.9); border: 1px solid var(--hair); padding: 4px 8px; border-radius: 6px; pointer-events: none; }
@@ -64,7 +65,7 @@
 </head>
 <body>
 <header>
-  <h1>Two-bathroom remodel — proposed plumbing (3D)</h1>
+  <h1>Two-bathroom remodel — proposed plumbing (3D)<span id="hdrLayout"></span></h1>
   <span class="sub">Drain-waste-vent layout for review · slab on grade, septic · to scale (1 unit = 1 inch) · code basis: 2025 California Plumbing Code</span>
 </header>
 <aside>
@@ -78,15 +79,27 @@
     <div class="help"><b>Hover</b> any pipe or fitting for its size, depth and code reference. Top of the plan = exterior window wall.</div>
   </div>
 
+  <h2>Layout</h2>
+  <div class="row">
+    <button data-layout="A">A — main up the middle</button>
+    <button data-layout="B">B — toilets back-to-back</button>
+  </div>
+  <div class="row" id="bVarRow">
+    <button data-bvar="1">B1 — flat 4-way</button>
+    <button data-bvar="2">B2 — vertical, steps down</button>
+  </div>
+  <div class="muted" id="layoutNote"></div>
+
   <h2>View</h2>
   <div class="row">
     <button data-mode="orbit">3D orbit</button>
     <button data-mode="top">Top plan</button>
     <button data-mode="walk">Walk through</button>
+    <button data-mode="person">Person view (5' 5")</button>
   </div>
   <div id="orbitPanel">
     <div class="row">
-      <button data-orbit="birdseye">Bird's-eye</button>
+      <button data-orbit="birdseye">Overview</button>
       <button data-orbit="master">Master bath</button>
       <button data-orbit="guest">Guest bath</button>
       <button data-orbit="under">From below</button>
@@ -95,20 +108,26 @@
   </div>
   <div id="topPanel"><div class="help">Looking straight down. Drag or <b>W A S D</b> = pan · scroll or <b>Q / E</b> = zoom.</div></div>
   <div id="walkPanel">
+    <div class="row"><button data-walkview="first">First person</button><button data-walkview="follow">Follow the person (from above)</button></div>
     <div class="row" id="walkPresets"></div>
-    <div class="help"><b>W A S D</b> walk · <b>drag</b> or <b>← →</b> look around · <b>Q / E</b> go down / up (under the slab, up into the attic) · hold <b>Shift</b> to go faster.</div>
-    <div class="muted">Eye height: <span id="eyeVal">64" (≈ 5' 9" tall person)</span></div>
-    <input type="range" id="eye" min="-48" max="190" step="1" value="64">
+    <div class="help" id="walkHelpFirst"><b>W A S D</b> walk · <b>drag</b> or <b>← →</b> look around · <b>Q / E</b> go down / up (under the slab, up into the attic) · hold <b>Shift</b> to go faster.</div>
+    <div class="help" id="walkHelpFollow"><b>W A S D</b> walk her around (she bumps into walls and fixtures) · <b>drag</b> turn + tilt the view · <b>scroll</b> or <b>Q / E</b> zoom out / in · <b>Shift</b> faster.</div>
+    <div id="eyeBox"><div class="muted">Eye height: <span id="eyeVal">60½" (≈ 5' 5" person)</span></div>
+    <input type="range" id="eye" min="-48" max="190" step="0.5" value="60.5"></div>
   </div>
 
   <h2>Show</h2>
   <label class="cb"><input type="checkbox" id="chkDims" checked> Room dimensions</label>
   <label class="cb"><input type="checkbox" id="chkDoors" checked> Door swings</label>
+  <label class="cb"><input type="checkbox" id="chkFloor" checked> Floor + slab</label>
+  <label class="cb"><input type="checkbox" id="chkText" checked> Text labels</label>
+  <label class="cb"><input type="checkbox" id="chkWater" checked> Water pipes (hot / cold supply)</label>
   <div class="muted" style="margin-top:6px">Walls: <span id="cutVal"></span></div>
   <input type="range" id="cut" min="6" max="96" step="1" value="54">
   <div class="row"><button data-cut="96">Full</button><button data-cut="54">Half</button><button data-cut="10">Floor only</button><button data-cut="0">None (plumbing only)</button></div>
 
   <div id="plumbPanel"></div>
+  <div id="waterPanel"></div>
 
   <h2>Measure</h2>
   <div class="row"><button id="btnMeasure">Measure tool</button><button id="btnMeasureClear">Clear</button></div>
@@ -4450,8 +4469,10 @@ const PLAN = {
 
 // ---------------- PHASE 2 (plumbing) — DRAFT. Owner answers 2026-10-23 noted; the rest are assumptions. ----------------
 const PLUMB = {
+  layout: 'B',               // 'A' / 'B' (owner's sketch, 2026-11-01) — the sidebar switch; Layout A is also saved in snapshots/layout-A_2026-11-01
+  bVariant: 1,               // Layout B's toilets: 1 = flat 3" 4-way under the middle wall; 2 = vertical double fixture fitting, steps down (owner 2026-11-02)
   slabT: 4,                  // assumed 4" slab
-  tieInDepth: 16,            // owner: 16" below the TOP OF THE SLAB at the septic connection (will re-measure)
+  tieInDepth: 18,            // owner 2026-11-02: ≈18" below the TOP OF THE SLAB at the septic connection (first measured 16")
   depthTo: 'top',            // 'top' = 16" is to the top of the pipe (what you hit digging); 'invert' = to its inside bottom
   slopePerFt: 0.25,          // CPC 708.1: 1/4" per foot (1/8" for 4"+ only with inspector approval)
   mainX: 43.25,              // owner: in the open floor, middle of it -> middle of the clear strip x 34..52.5 (curb edge .. guest shower)
@@ -4468,7 +4489,7 @@ const PLUMB = {
   ventsToRoof: true,
   // owner: the roof already has 2 vent holes -> master vents to one stack, guest vents to the other. Positions/size ASSUMED until measured.
   roofVents: { master: { x: 86.75, z: 39, size: 3 }, guest: { x: -2.25, z: 116, size: 3 } },         // owner: roof vents exist / flexible — vents drawn up to a simple roof
-  masterShowerRoute: 'main',   // 'main' = 2" branch to the new main (code redesign); 'oldTub' = old tub route into the kitchen 2"
+  masterShowerRoute: 'oldTub', // owner 2026-11-01: keep the existing tub drain + vent untouched ('main' = new 2" branch to the main)
   masterVenting: 'individual', // 'individual' = toilet + shower vents in the left wall, sink in the right wall; 'wetLoop' = research option (1 vent)
 };
 
@@ -4480,6 +4501,7 @@ const OLD = {
   toiletFlange: { x: 72.5, z: 46, tol: 6 },   // lands inside the new master vanity
   dot: { x: 70, z: 64, tol: 5 },              // unknown mark
   crossings: { tub: 12, toilet: 76 },         // x where old drains pass under the window-wall footing
+  tubVent: { x: 24, z: -2.25 },               // existing cast-iron tub vent in the window wall, right of the old valve (photo, ±4")
 };
 
 
@@ -4609,6 +4631,12 @@ function makeLabel(text, cls, x, y, z) {
   const o = new CSS2DObject(el);
   o.position.set(x, y, z);
   return o;
+}
+
+// Removing a group doesn't fire 'removed' on the CSS2D labels nested inside it, so their <div>s would stay on screen, frozen.
+// Call before discarding a group that holds labels.
+function disposeLabels(obj) {
+  obj.traverse((o) => { if (o.isCSS2DObject && o.element.parentNode) o.element.remove(); });
 }
 
 // Dimension line on (or near) the floor between two plan points, with ticks and a label.
@@ -4918,7 +4946,7 @@ function buildToilet(spec, name) {
   g.add(boxFrom(back + d.tankD, back + d.tankD + 1.2, d.tankH - 5, d.tankH - 4, z - d.tankW / 2 + 1, z - d.tankW / 2 + 4, MAT.chrome)); // handle
   const clearFront = front;
   return tag(g, `<b>${name}</b><br>Flange ${fmtIn(spec.roughIn)} from wall (rough-in), centered ${fmtIn(z)} from window wall<br>` +
-    `Standard elongated: ${fmtIn(d.depth)} deep, front at x=${fmtIn(clearFront)}`);
+    `Elongated, ${fmtIn(d.depth)} deep, front at x=${fmtIn(clearFront)}. Must be 1.28 gal/flush (CPC 411.2)`);
 }
 
 function toiletCollider(spec) {
@@ -5033,7 +5061,7 @@ function buildMasterShower() {
   g.add(tilePanel(s.x0, s.x0 + tileT, 0.5, 84, s.z0, s.z1));              // left wall tile
   g.add(tilePanel(s.x0, c.x1, 0.5, 84, s.z0, s.z0 + tileT));              // window wall tile
   g.add(tilePanel(s.x0, s.x1, 0.5, 84, s.z1 - tileT, s.z1));              // divider tile
-  g.add(showerValve(s.x0 + tileT, (s.z0 + s.z1) / 2, 1, 'x'));
+  g.add(showerValve((s.x0 + s.x1) / 2, s.z0 + tileT, 1, 'z')); // on the window wall, where the old valve and its supply stubs are
   // glass on the curb: fixed panel + hinged door
   const gx = (c.x0 + c.x1) / 2, top = 76, y0 = c.h + 0.5;
   const fixedEnd = s.z0 + 20;
@@ -5066,11 +5094,35 @@ function buildGuestShower() {
     `Drain where the drawing's circle is: ${fmtIn(s.drain.x)} from left wall, ${fmtIn(s.drain.z - PLAN.guest.z0)} from the middle wall`);
 }
 
+// Layout B: alcove tub/shower combo (60" × 32") in the guest shower spot; drain at the middle-wall end.
+function buildGuestTub() {
+  const g = new THREE.Group();
+  const s = PLAN.guestShower, tileT = 0.5, rimH = 15, wallT = 2.5;
+  const tub = mat(0xfafafa, { roughness: 0.25 });
+  g.add(boxFrom(s.x0, s.x1, 0, rimH, s.z0, s.z1, tub));                                        // tub body + apron
+  g.add(boxFrom(s.x0 + wallT, s.x1 - wallT, rimH - 13, rimH + 0.05, s.z0 + wallT, s.z1 - wallT, MAT.porcelainShade)); // basin
+  g.add(drainGrate(s.drain.x, s.drain.z + 0.5, rimH - 13));
+  g.add(tilePanel(s.x1 - tileT, s.x1, rimH, 84, s.z0, s.z1));                                 // tile above the rim
+  g.add(tilePanel(s.x0, s.x1, rimH, 84, s.z0, s.z0 + tileT));
+  g.add(tilePanel(s.x0, s.x1, rimH, 84, s.z1 - tileT, s.z1));
+  g.add(showerValve((s.x0 + s.x1) / 2, s.z0 + tileT, 1, 'z'));                                 // valve + head on the drain-end wall
+  const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 5, 12), MAT.chrome);
+  spout.rotation.x = Math.PI / 2;
+  spout.position.set((s.x0 + s.x1) / 2, rimH + 5, s.z0 + tileT + 2.5);
+  g.add(spout);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, s.z1 - s.z0, 12), MAT.chrome);
+  rod.rotation.x = Math.PI / 2;
+  rod.position.set(s.x0 + 1.5, 78, (s.z0 + s.z1) / 2);
+  g.add(rod);
+  return tag(g, `<b>Guest tub / shower</b> (Layout B)<br>${fmtIn(s.z1 - s.z0)} × ${fmtIn(s.x1 - s.x0)} alcove tub, drain at the middle-wall end`);
+}
+
 function buildFixtures() {
   const g = new THREE.Group();
   const P = PLAN;
   g.add(buildMasterShower());
-  g.add(buildGuestShower());
+  g.userData.guestWet = buildGuestWet();
+  g.add(g.userData.guestWet);
   g.add(buildToilet(P.masterToilet, 'Master toilet'));
   g.add(buildToilet(P.guestToilet, 'Guest toilet'));
   g.add(buildVanity(P.masterVanity, -1, 'Master vanity', 34));
@@ -5081,9 +5133,27 @@ function buildFixtures() {
   // Shower glass: the master's hinged door and the guest's open slider half are walkable.
   const c = P.masterCurb, s = P.masterShower;
   COLLIDERS.push({ x0: c.x0, x1: c.x1, z0: s.z0, z1: s.z0 + 20 });
-  const gs = P.guestShower;
-  COLLIDERS.push({ x0: gs.x0, x1: gs.x0 + 2, z0: gs.z0, z1: gs.z0 + (gs.z1 - gs.z0) / 2 + 3 });
   return g;
+}
+
+// Guest shower (Layout A) or tub/shower (Layout B), with its walk collider.
+function buildGuestWet() {
+  const gs = PLAN.guestShower, tub = PLUMB.layout === 'B';
+  const g = tub ? buildGuestTub() : buildGuestShower();
+  g.userData.collider = tub ? { x0: gs.x0, x1: gs.x1, z0: gs.z0, z1: gs.z1 }   // the tub blocks walking
+    : { x0: gs.x0, x1: gs.x0 + 2, z0: gs.z0, z1: gs.z0 + (gs.z1 - gs.z0) / 2 + 3 }; // the slider's fixed glass half
+  COLLIDERS.push(g.userData.collider);
+  return g;
+}
+
+// Layout switch: replace the guest shower / tub in the fixtures group (and drop the old one's collider + see-through floor).
+function swapGuestWet(fixtures) {
+  const old = fixtures.userData.guestWet;
+  COLLIDERS.splice(COLLIDERS.indexOf(old.userData.collider), 1);
+  old.traverse((o) => { const i = SEE_THROUGH.indexOf(o.material); if (i >= 0) SEE_THROUGH.splice(i, 1); });
+  fixtures.remove(old);
+  fixtures.userData.guestWet = buildGuestWet();
+  fixtures.add(fixtures.userData.guestWet);
 }
 
 
@@ -5123,8 +5193,77 @@ function buildDims() {
 }
 
 
+// ===== avatar.js =====
+// A 5'5" (65") figure for the walk-through's bird's-eye view. Built from simple shapes with average adult female proportions;
+// faces local −z (same convention as the walk camera's yaw). Legs and arms swing while walking.
+
+const AVATAR_H = 65;
+const AV = { group: null, legL: null, legR: null, armL: null, armR: null, phase: 0, swing: 0 };
+
+function buildAvatar() {
+  const m = (color, rough = 0.7) => new THREE.MeshStandardMaterial({ color, roughness: rough });
+  const skin = m(0xe0b49a, 0.6), shirt = m(0x5b7fa6), pants = m(0x2f3640), hair = m(0x3b2a20, 0.8), shoe = m(0xf2f2f2, 0.5);
+  const mesh = (geo, mat, x, y, z) => { const o = new THREE.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; return o; };
+  const g = new THREE.Group();
+  const H = AVATAR_H;
+  // head, hair, nose (shows which way she faces)
+  g.add(mesh(new THREE.SphereGeometry(4.2, 24, 18), skin, 0, H - 4.4, 0));
+  const hairCap = mesh(new THREE.SphereGeometry(4.55, 24, 18), hair, 0, H - 3.9, 0.7);
+  hairCap.scale.set(1, 1.02, 1.05);
+  g.add(hairCap);
+  g.add(mesh(new THREE.SphereGeometry(0.7, 10, 8), skin, 0, H - 4.8, -4.1));
+  // neck, torso (elliptical), hips
+  g.add(mesh(new THREE.CylinderGeometry(1.7, 1.8, 2.6, 14), skin, 0, H - 9.4, 0));
+  const torso = mesh(new THREE.CylinderGeometry(6.4, 5.5, 14.5, 24), shirt, 0, H - 18, 0);
+  torso.scale.z = 0.56;
+  g.add(torso);
+  const hips = mesh(new THREE.CylinderGeometry(5.6, 6.4, 8, 24), pants, 0, H - 29.2, 0);
+  hips.scale.z = 0.62;
+  g.add(hips);
+  // legs: pivot at the hip so they swing
+  const legLen = 27;
+  const leg = (side) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 3.3, 33, 0);
+    pivot.add(mesh(new THREE.CapsuleGeometry(2.45, legLen, 6, 14), pants, 0, -(legLen / 2 + 1.5), 0));
+    pivot.add(mesh(new THREE.BoxGeometry(3.6, 2.2, 8.5), shoe, 0, -31.9, -1.6));
+    g.add(pivot);
+    return pivot;
+  };
+  // arms: short sleeve + forearm + hand, pivot at the shoulder
+  const arm = (side) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 7.3, H - 12.8, 0);
+    pivot.add(mesh(new THREE.CylinderGeometry(1.9, 1.8, 7, 14), shirt, 0, -3.5, 0));
+    pivot.add(mesh(new THREE.CapsuleGeometry(1.45, 12, 6, 12), skin, 0, -13.5, 0));
+    pivot.add(mesh(new THREE.SphereGeometry(1.5, 12, 10), skin, 0, -21.5, 0));
+    pivot.rotation.z = side * 0.06;
+    g.add(pivot);
+    return pivot;
+  };
+  AV.legL = leg(-1); AV.legR = leg(1);
+  AV.armL = arm(-1); AV.armR = arm(1);
+  g.visible = false;
+  AV.group = tag(g, '<b>5\' 5" person</b> — for scale (eye height ≈ 60½")');
+  return AV.group;
+}
+
+// Walk cycle: phase advances with distance; the swing eases in when moving and out when stopped.
+function animateAvatar(dist, dt) {
+  const moving = dist > 1e-3;
+  AV.phase += dist / 14 * Math.PI; // ~28" stride
+  AV.swing += ((moving ? 1 : 0) - AV.swing) * Math.min(1, dt * 8);
+  const a = Math.sin(AV.phase) * 0.5 * AV.swing;
+  AV.legL.rotation.x = a;
+  AV.legR.rotation.x = -a;
+  AV.armL.rotation.x = -a * 0.8;
+  AV.armR.rotation.x = a * 0.8;
+}
+
+
 // ===== walk.js =====
-// First-person walk-through: WASD / arrow keys to move, drag to look, Q/E down/up, Shift to go faster.
+// Walk-through. Two views: first person (WASD move, drag look, Q/E down/up) or bird's-eye following a 5'5" body
+// (WASD walks her, drag turns/tilts the view, scroll or Q/E zooms). Shift = faster.
 // Collision: the walker is a circle (radius 7") pushed out of every collider rectangle in plan — only while the
 // eye is inside the rooms (floor..ceiling). Below the slab or up in the attic you fly freely.
 
@@ -5133,7 +5272,10 @@ const WALK = {
   pos: { x: 110, z: 18 },
   yaw: Math.PI / 2,
   pitch: -0.08,
-  eye: 64,
+  eye: AVATAR_H - 4.5,          // eye height of the 5'5" person
+  bodyEye: AVATAR_H - 4.5,
+  view: 'first',                // 'first' | 'follow' (bird's-eye camera behind and above the body)
+  follow: { dist: 150, pitch: 0.95 },
   eyeMin: -48,
   eyeMax: 190,
   climb: 30, // in/s for Q/E
@@ -5161,7 +5303,7 @@ function walkTeleport(key) {
   WALK.pos = { ...p.pos };
   WALK.yaw = yawToward(p.pos, p.look);
   WALK.pitch = -0.3;
-  WALK.eye = 64;
+  WALK.eye = WALK.bodyEye;
   if (WALK.onEye) WALK.onEye(WALK.eye);
 }
 
@@ -5177,8 +5319,14 @@ function walkInit(dom) {
     const dx = e.clientX - WALK.last.x, dy = e.clientY - WALK.last.y;
     WALK.last = { x: e.clientX, y: e.clientY };
     WALK.yaw += dx * 0.0045;
-    WALK.pitch = Math.max(-1.45, Math.min(1.45, WALK.pitch + dy * 0.0045));
+    if (WALK.view === 'follow') WALK.follow.pitch = Math.max(0.25, Math.min(1.5, WALK.follow.pitch + dy * 0.004));
+    else WALK.pitch = Math.max(-1.45, Math.min(1.45, WALK.pitch + dy * 0.0045));
   });
+  dom.addEventListener('wheel', (e) => {
+    if (!WALK.enabled || WALK.view !== 'follow') return;
+    e.preventDefault();
+    WALK.follow.dist = Math.max(40, Math.min(420, WALK.follow.dist * (1 + e.deltaY * 0.0012)));
+  }, { passive: false });
   const end = () => { WALK.dragging = false; };
   dom.addEventListener('pointerup', end);
   dom.addEventListener('pointercancel', end);
@@ -5231,15 +5379,19 @@ function walkUpdate(dt, camera) {
   const fast = k.ShiftLeft || k.ShiftRight ? 2.2 : 1;
   const speed = WALK.speed * fast;
   const climb = (k.KeyE ? 1 : 0) - (k.KeyQ ? 1 : 0);
-  if (climb) {
+  const follow = WALK.view === 'follow';
+  if (climb && follow) {
+    WALK.follow.dist = Math.max(40, Math.min(420, WALK.follow.dist * (1 - climb * 1.2 * dt))); // E = closer, Q = farther
+  } else if (climb) {
     WALK.eye = Math.max(WALK.eyeMin, Math.min(WALK.eyeMax, WALK.eye + climb * WALK.climb * fast * dt));
     if (WALK.onEye) WALK.onEye(WALK.eye);
   }
-  const inRooms = WALK.eye > 0 && WALK.eye < PLAN.ceiling + 4;
+  const inRooms = follow || (WALK.eye > 0 && WALK.eye < PLAN.ceiling + 4); // the body always walks on the floor
   const fx = -Math.sin(WALK.yaw), fz = -Math.cos(WALK.yaw);
   const rx = Math.cos(WALK.yaw), rz = -Math.sin(WALK.yaw);
   let mx = fx * fwd + rx * strafe, mz = fz * fwd + rz * strafe;
   const len = Math.hypot(mx, mz);
+  const before = { ...WALK.pos };
   if (len > 0) {
     mx /= len; mz /= len;
     const steps = Math.max(1, Math.ceil((speed * dt) / 2)); // ≤2" per sub-step so thin walls can't be skipped
@@ -5249,6 +5401,18 @@ function walkUpdate(dt, camera) {
       WALK.pos.z += (mz * speed * dt) / steps;
       if (inRooms) resolveCollisions(WALK.pos, WALK.radius, rects);
     }
+  }
+  if (AV.group) AV.group.visible = follow;
+  if (follow) {
+    // body on the floor facing the walk direction; camera behind and above, looking at her chest
+    AV.group.position.set(WALK.pos.x, 0, WALK.pos.z);
+    AV.group.rotation.y = WALK.yaw;
+    animateAvatar(Math.hypot(WALK.pos.x - before.x, WALK.pos.z - before.z), dt);
+    const f = WALK.follow, back = { x: Math.sin(WALK.yaw), z: Math.cos(WALK.yaw) };
+    const tx = WALK.pos.x, ty = 38, tz = WALK.pos.z;
+    camera.position.set(tx + back.x * f.dist * Math.cos(f.pitch), ty + f.dist * Math.sin(f.pitch), tz + back.z * f.dist * Math.cos(f.pitch));
+    camera.lookAt(tx, ty, tz);
+    return;
   }
   camera.position.set(WALK.pos.x, WALK.eye, WALK.pos.z);
   camera.rotation.set(WALK.pitch, WALK.yaw, 0, 'YXZ'); // drag = "grab the view" (Street View style)
@@ -5503,9 +5667,10 @@ function buildPipes(L) {
 const PLB = { root: null, layout: null };
 
 function rebuildPlumbing() {
+  disposeLabels(PLB.root);
   PLB.root.clear();
   PLB.layout = computeLayout();
-  PLB.dwv = dwvLayout();                       // code-based layout (2025 CPC), see dwv.js
+  PLB.dwv = PLUMB.layout === 'B' ? dwvLayoutB() : dwvLayout(); // code-based layouts (2025 CPC): dwv_b.js / dwv.js
   PLB.pipes = buildDwvDrains(PLB.dwv);
   PLB.existing = buildExisting(PLB.layout);
   PLB.root.add(PLB.pipes, PLB.existing);
@@ -5523,22 +5688,29 @@ function initPlumbing(scene) {
   PLB.root = new THREE.Group();
   scene.add(PLB.root);
   rebuildPlumbing();
+  PLB.outline = buildLayoutOutline();
+  scene.add(PLB.outline);
+  buildPlumbPanel();
+}
+
+// Sidebar controls. Rebuilt on a layout switch (only Layout B has the guest-sink option); the show/hide checkboxes keep their state.
+function buildPlumbPanel() {
+  const keep = (id) => (!$(id) || $(id).checked ? ' checked' : '');
   const opt = (id, pairs, val) => `<select id="${id}">${pairs.map(([v, t]) => `<option value="${v}"${v === val ? ' selected' : ''}>${t}</option>`).join('')}</select>`;
   $('plumbPanel').innerHTML = `
     <h2>Plumbing <span class="draft">PROPOSED</span></h2>
-    <label class="cb"><input type="checkbox" id="chkPlumb" checked> <b>Show plumbing</b> (floor + slab go see-through)</label>
+    <label class="cb"><input type="checkbox" id="chkPlumb"${keep('chkPlumb')}> <b>Show plumbing</b> (floor + slab go see-through)</label>
     <div class="row" style="gap:10px">
-      <label class="cb"><input type="checkbox" id="chkPipes" checked> Drains</label>
-      <label class="cb"><input type="checkbox" id="chkVents" checked> Vents + roof</label>
-      <label class="cb"><input type="checkbox" id="chkCuts" checked> Concrete cuts</label>
-      <label class="cb"><input type="checkbox" id="chkExist" checked> Existing lines</label>
+      <label class="cb"><input type="checkbox" id="chkPipes"${keep('chkPipes')}> Drains</label>
+      <label class="cb"><input type="checkbox" id="chkVents"${keep('chkVents')}> Vents + roof</label>
+      <label class="cb"><input type="checkbox" id="chkCuts"${keep('chkCuts')}> Concrete cuts</label>
+      <label class="cb"><input type="checkbox" id="chkExist"${keep('chkExist')}> Existing lines</label>
     </div>
 
     <div class="muted" style="margin-top:6px">Tie-in to the existing line (in the dirt)</div>
     ${opt('selTie', [['kitchenJoin', 'Straight out, 90° into the line (2"→4" swap)'], ['oldToiletInlet', "Reuse old toilet's 4\" inlet (x≈76)"], ['newWye', 'New 4" wye on the cast iron (x≈58)']], PLUMB.tieIn)}
-    <div class="muted" style="margin-top:6px">Master shower drain</div>
-    ${opt('selMs', [['oldTub', "Old tub route (tub box → kitchen 2\")"], ['main', 'Branch to the new main']], PLUMB.masterShowerRoute)}
-    <div class="muted" style="margin-top:6px">Your 16" was measured to the</div>
+    <div class="help" style="margin-top:6px"><b>Master shower:</b> keeps the existing tub drain, trap and vent — no cutting, no new pipe.</div>
+    <div class="muted" style="margin-top:6px">The tie-in depth was measured to the</div>
     ${opt('selDepth', [['top', 'top of the pipe'], ['invert', 'bottom (invert) of the pipe']], PLUMB.depthTo)}
     <div class="muted" style="margin-top:6px">Tie-in depth: <span id="tieVal"></span></div>
     <input type="range" id="tieDepth" min="10" max="30" step="0.5" value="${PLUMB.tieInDepth}">
@@ -5547,11 +5719,8 @@ function initPlumbing(scene) {
     <div class="muted">Slope: ${opt('selSlope', [['0.25', '¼" per ft (code default)'], ['0.125', '⅛" per ft (needs inspector OK)']], String(PLUMB.slopePerFt))}</div>
     <div id="plumbStats"></div>`;
   ['chkPlumb', 'chkPipes', 'chkVents', 'chkCuts', 'chkExist'].forEach((id) => $(id).addEventListener('change', () => { applyPlumbingToggles(); saveState(); }));
-  PLB.outline = buildLayoutOutline();
-  scene.add(PLB.outline);
   const re = () => { rebuildPlumbing(); applyPlumbingToggles(); renderPlumbStats(); saveState(); };
   $('selTie').addEventListener('change', (e) => { PLUMB.tieIn = e.target.value; re(); });
-  $('selMs').addEventListener('change', (e) => { PLUMB.masterShowerRoute = e.target.value; re(); });
   $('selDepth').addEventListener('change', (e) => { PLUMB.depthTo = e.target.value; re(); });
   $('selSlope').addEventListener('change', (e) => { PLUMB.slopePerFt = +e.target.value; re(); });
   $('tieDepth').addEventListener('input', (e) => { PLUMB.tieInDepth = +e.target.value; re(); });
@@ -5564,15 +5733,31 @@ function renderPlumbStats() {
   $('mainVal').textContent = fmtIn(PLUMB.mainX);
   const L = PLB.dwv, S = PLB.stats;
   const how = {
-    mToilet: '4×3 flange → 3×4 closet bend → vent wye (rolled 45°) → 45° drop → ⅛ bend → 4×4×3 wye',
+    mToilet: '4×3 flange → 3×4 closet bend turned 45° → vent wye (rolled 45°) → 45° drop → straight into a 4×4×3 wye',
     mShower: '2" P-trap → arm 14" → vent wye → 45° drop → ⅛ bends → 4×4×2 wye',
-    mLav: '1½" trap → san. tee in wall (vent up) → drop → long sweep → ⅛ bend → 4×4×2 wye',
+    mLav: '1½" trap → san. tee in wall (vent up) → drop → long sweep → west into the guest-shower line (45° wye)',
     gToilet: '4×3 flange → 3×4 closet bend → wet-vent wye → 45° drop → ⅛ bend → 4×4×3 wye',
     gLav: '1½" trap → san. tee in wall (dry vent up) → long sweep → 2" wet vent → wye into the toilet drain',
-    gShower: '2" P-trap → arm 7" → vent wye under the middle wall → 45° drop → 4×4×2 wye',
+    gShower: '2" P-trap → arm 7" → vent wye under the middle wall → 45° drop → ⅛ bend → 4×4×2 wye — also carries the master sink',
   };
+  const v2 = PLUMB.layout === 'B' && PLUMB.bVariant === 2;
+  if (PLUMB.layout === 'B') Object.assign(how, {
+    mToilet: '4×3 flange → 3×4 closet bend set deep → straight 45° into a side port of the 3" 4-way',
+    gToilet: '4×3 flange → 3×4 closet bend set deep → straight 45° into the other side port of the 4-way',
+    gLav: '1½" trap → san. tee in the left wall (vent up, drain down) → 5" drop → long-sweep ¼ bend → 1½" drain INSIDE the wall above the slab, ¼"/ft, to the middle-wall corner',
+    gWet: 'San. tee into the toilets\' vent riser → riser + 2" leg under the slab carry the sink water into the 4-way (wet vent)',
+    mLav: '1½" trap → san. tee in the right wall (vent up, drain down) → 5" drop → long-sweep ¼ bend → 1½" drain INSIDE the wall above the slab, ¼"/ft, to the middle-wall corner',
+    mWet: 'San. tee into the corner riser (vent up) → riser + 2" branch under the middle wall → ⅛ bend → 3×3×2 wye on the 3" head of the main',
+    gShower: '2" tub trap → arm 7" → vent wye under the middle wall (vent up the wall) → 45° drop into a wye rolled up on the right branch',
+  });
+  if (v2) Object.assign(how, {
+    mToilet: '4×3 flange → 3×4 closet bend → straight and level, just under the slab, into a side inlet of the vertical 3" double fixture fitting',
+    gToilet: '4×3 flange → 3×4 closet bend → straight and level into the opposite inlet of the same fitting',
+    gLav: '1½" trap → san. tee in the left wall (vent up, drain down) → 5" drop → long-sweep ¼ bend → 1½" drain INSIDE the wall, ¼"/ft, around the corner into the middle wall → san. tee into the toilets\' stack',
+    gWet: 'The 2" stack from the sink\'s tee straight down to the 3"×2" reducer on top of the toilets\' fitting (vertical wet vent)',
+  });
   const rows = L.runs.map((r) => `<tr><td><b>${r.name.replace(' (wet vent)', '')}</b> ${r.size}"<br><span class="muted">${how[r.id] || ''}</span></td>` +
-    `<td class="num">${r.wyeZ != null ? fmtIn(-L.mainInv(r.wyeZ)) : '→ toilet'}</td></tr>`).join('');
+    `<td class="num">${r.wyeZ != null ? fmtIn(-L.mainInv(r.wyeZ)) : r.joinInv != null ? `${fmtIn(-r.joinInv)}<br><span class="muted">${r.into || 'toilet branch'}</span>` : r.into || (r.joins === 'gShower' ? '→ shower line' : '→ toilet')}</td></tr>`).join('');
   const lbs = Math.round((S.slabCuft * 145) / 50) * 50;
   $('plumbStats').innerHTML = `
     <h2>Concrete to break</h2>
@@ -5585,11 +5770,18 @@ function renderPlumbStats() {
     <div class="muted">Trenches 15–18" wide (CPC 314.4.1 for plastic pipe); ask the inspector if narrower is OK for short branches. Plus digging in the dirt strip outside.</div>
     <h2>Each run, fixture to main</h2>
     <table class="mini"><tr><th>Run and fittings</th><th>Main depth at its wye</th></tr>${rows}
+      ${PLUMB.masterShowerRoute === 'oldTub' ? '<tr><td><b>Master shower</b><br><span class="muted">existing tub trap, drain and vent kept as is — no new pipe, no digging</span></td><td class="num">existing</td></tr>' : ''}
+      ${PLUMB.layout === 'B' ? `<tr><td><b>Head of the main</b> ${v2 ? `3" drops from the toilets' fitting → ${L.vFit.baseFits ? 'long' : 'short'}-sweep ¼ bend → east under the middle wall` : '3" from the 4-way under the middle wall'} → 3" long-sweep ¼ bend → 3×3×2 wye (right branch) → 4×3 increaser → 4" main</td><td class="num">${fmtIn(-L.headInv)} at the 4-way</td></tr>` : ''}
       <tr><td><b>Main</b> 4" at ¼"/ft → 4×4×4 combo at the tie-in</td><td class="num">${fmtIn(-L.inv0)}</td></tr></table>
     <div class="muted">Depths are to the pipe bottom. Every horizontal turn is a ⅛ bend or long sweep; every branch enters the main through a 45° wye sweeping downstream; aggregate turns ≤ 135° per line.</div>
-    <h2>Vents (3 risers in the master, 2 in the guest → 1 roof vent)</h2>
-    <div class="help">Master: sink tee in the right wall; toilet and shower legs under the slab to the left wall (905.3 — inspector to accept).
-      Guest: sink dry vent also vents the toilet (horizontal wet vent, 908.2); shower vent straight up the new middle wall.</div>
+    <h2>Vents (${L.vents.length} new risers → the 2 existing roof holes${PLUMB.masterShowerRoute === 'oldTub' ? ', plus the existing tub vent' : ''})</h2>
+    <div class="help">Every trap needs a vent within its trap-arm limit (toilet: 6 ft from the flange, Table 1002.2), so each fixture below has one.<br>
+      ${PLUMB.layout === 'B' ? `${v2 ? `<b>Toilets:</b> both come in level to a vertical 3" double fixture fitting between them (704.2); its top continues as a 2" stack straight up the middle wall, their shared vent (7 fixture units with the guest sink, a 2" vent takes 24 — Table 703.2). The guest sink drains into the stack, so from its tee down to the fitting the stack is a vertical wet vent — all vertical, the textbook case (908.1).<br>`
+        : `<b>Toilets:</b> one 2" vent off the 4-way's fourth port (3"→2" reducer) serves both (each flange ≈2 ft away; 7 fixture units with the guest sink, a 2" vent takes 24 — Table 703.2). It runs under the slab to the left-wall corner and up; the guest sink drains into that riser, so below the sink's tee it's a wet vent (908 — inspector's call).<br>`}
+      <b>Right side, same pattern:</b> the master sink drains into a riser at the right-wall corner (1½" vent up, tied into the sink's vent in the wall at 84"; wet below), and a 2" branch runs under the middle wall to the main. The guest tub/shower joins it and keeps its own vent up the middle wall, so nothing on this side depends on the wet vent.<br>
+      <b>Sinks:</b> each also has a vent at its own tee.` :
+      `<b>Master:</b> sink tee in the right wall; toilet leg under the slab to the left wall (905.3 — inspector to accept)${PLUMB.masterShowerRoute === 'oldTub' ? '; the shower keeps the existing tub vent' : '; shower leg to the left wall too'}. Master vents → master roof hole.<br>
+      <b>Guest:</b> sink dry vent also vents the toilet (horizontal wet vent, 908.2); shower vent straight up the new middle wall. Guest vents → guest roof hole.`}</div>
     <h2>Check before cutting</h2>
     <div class="warnbox">
       <b>1. Code edition:</b> permits filed since Jan 1, 2026 fall under the 2025 CPC — confirm with the building department.<br>
@@ -5632,18 +5824,15 @@ function buildExisting(L) {
   const invAtX = (x) => L.tieInv + (U.slopePerFt * Math.max(0, d.toiletJoinX - x)) / 12; // existing line falls toward the septic turn
   const yCI = (x) => invAtX(x) + ci / 2;
   const swap = U.tieIn === 'kitchenJoin';
-  const keepTo = swap ? U.mainX : d.junction2to4X;
+  const keepTo = swap ? U.mainX - U.absOD[4] / 2 - 3 : d.junction2to4X;   // with the swap it ends at the new combo's 4×2 reducer
   const kitchen = [V3(d.kitchenFromX, yCI(d.kitchenFromX), d.lineZ), V3(keepTo, yCI(keepTo), d.lineZ)];
-  g.add(tag(pipePath(kitchen, U.absOD[2], PMAT.oldAbs), '<b>Existing 2" ABS from the kitchen</b> (in the dirt strip)'));
-  if (swap) {
-    g.add(tag(pipePath([V3(keepTo, yCI(keepTo) + 3.5, d.lineZ), V3(d.junction2to4X, yCI(d.junction2to4X) + 3.5, d.lineZ)], U.absOD[2], PMAT.abandon),
-      '<b>Old 2" section — remove</b> (replaced by the new 4")'));
-  }
+  g.add(tag(pipePath(kitchen, U.absOD[2], PMAT.oldAbs), '<b>Existing 2" ABS from the kitchen</b> (in the dirt strip)' +
+    (swap ? '<br>Ends at the new combo\'s 4×2 reducer. Its old 2" section from here to the cast iron is cut out and replaced by the new 4".' : '')));
   const ciFrom = swap ? d.junction2to4X + 4 : d.junction2to4X; // with the swap, the new 4" couples onto the cast iron here
   const ciPts = [V3(ciFrom, yCI(ciFrom), d.lineZ), V3(d.septicTurnX, yCI(d.septicTurnX), d.lineZ),
     V3(d.septicTurnX, yCI(d.septicTurnX) - 1, d.lineZ - 60)];
   g.add(tag(sweepPipe(ciPts, ci, PMAT.castIron), '<b>Existing 4" cast iron</b> — stays as is (owner). Turns toward the septic.'));
-  pipeLabel(g, '2"→4" junction', d.junction2to4X, yCI(d.junction2to4X) + 7, d.lineZ, 'exist');
+  if (!swap) pipeLabel(g, '2"→4" junction', d.junction2to4X, yCI(d.junction2to4X) + 7, d.lineZ, 'exist');
   pipeLabel(g, 'To septic →', d.septicTurnX, yCI(d.septicTurnX) + 6, d.lineZ - 55, 'exist');
   pipeLabel(g, 'Kitchen 2"', d.kitchenFromX + 20, yCI(d.kitchenFromX) + 6, d.lineZ, 'exist');
   // Old toilet branch (abandoned; its 4" inlet is reused when tieIn = 'oldToiletInlet') and old sink stub.
@@ -5658,6 +5847,16 @@ function buildExisting(L) {
     const tb = OLD.tubDrain;
     g.add(tag(pipePath([V3(tb.x, 0.2, tb.z), V3(tb.x, -8, tb.z), V3(OLD.crossings.tub, -10, -2), V3(OLD.crossings.tub, yCI(OLD.crossings.tub), d.lineZ)], U.absOD[1.5], PMAT.abandon),
       '<b>Old tub drain — cap</b> at the kitchen line'));
+  } else {
+    // Existing tub drain + vent, reused as-is for the master shower (owner): nothing new, nothing dug. Under-floor layout approximate.
+    const ms = PLAN.masterShower.drain, tv = OLD.tubVent, cx = OLD.crossings.tub, od = U.absOD[1.5];
+    const trap = pTrap(V3(ms.x, -0.6, ms.z), od, V3(0, 0, -1), PMAT.castIron, -7.5);
+    g.add(tag(trap.group, '<b>Existing tub trap — reused</b> for the master shower<br>A tub-to-shower retrofit up to 36"×60" may keep a 1½" trap and arm (Table 702.1 note 9)'));
+    const o = trap.outlet;
+    g.add(tag(sweepPipe([o, V3(cx, -8.5, -5), V3(cx, yCI(cx), d.lineZ)], od, PMAT.castIron), '<b>Existing tub drain — kept as is</b><br>Runs under the footing into the kitchen line in the dirt strip. No digging, no new pipe.'));
+    g.add(tag(sweepPipe([V3(o.x + 0.5, o.y + 0.8, o.z + 1.5), V3(tv.x, -6, o.z + 1.5), V3(tv.x, -5.5, tv.z), V3(tv.x, roofY(tv.z) + 12, tv.z)], od + 0.3, PMAT.castIron),
+      '<b>Existing tub vent — kept as is</b><br>Cast iron in the window wall, up through the roof'));
+    pipeLabel(g, 'Existing tub drain + vent (reused, no digging)', ms.x + 8, 8, ms.z + 3, 'exist');
   }
   return g;
 }
@@ -5849,29 +6048,25 @@ function dwvLayout() {
   const runs = [], vents = [], cleanouts = [];
   const trapInv = -8.5, bendInv = -9.5, ventY = -5.4; // deep enough for a vent wye rolled 45° up under the 4" slab
 
-  // ---- master toilet: 3" closet bend east, vent off a rolled 3×2 wye 9" downstream, 45° drop, ⅛ bend NE into the main
+  // ---- master toilet (owner's dry-fit): 3×4 closet bend turned to 45°, one straight 3" run NE into a 4×4×3 wye further downstream.
+  //      Vent: rolled 3×2 wye ~9" along the run (past the closet bend, 310.3), 2" leg graded back to the left wall behind the toilet.
   const mt = P.masterToilet, mtF = { x: mt.wallX + mt.roughIn, z: mt.cz };
-  const mtW = NE({ x: 34, z: mt.cz }, X);
-  const mtRun = profiled([mtF, { x: 34, z: mt.cz }, mtW], bendInv, flatInto(mtW.z, 3), 3, 14);
-  runs.push({ id: 'mToilet', name: 'Master toilet', size: 3, pts: mtRun.pts, flange: mtF, wyeZ: mtW.z, drop: mtRun.drop, turns: 90, length: mtRun.length });
-  vents.push({ id: 'mToilet', name: 'Master toilet vent', size: 2, under: [V3(mtF.x + 9, bendInv + 1.75, mt.cz), V3(mtF.x + 7, ventY, mt.cz - 2), V3(mtF.x + 2, ventY + 0.1, mt.cz - 5), V3(wallL, ventY + 0.4, mt.cz - 5)], riser: { x: wallL, z: mt.cz - 5 } });
+  const mtW = NE(mtF, X);
+  const mtV = { x: mtF.x + 6.5, z: mtF.z - 6.5 };
+  const mtRun = profiled([mtF, mtW], bendInv, flatInto(mtW.z, 3), 3, 14);
+  runs.push({ id: 'mToilet', name: 'Master toilet', size: 3, pts: mtRun.pts, flange: mtF, wyeZ: mtW.z, drop: mtRun.drop, turns: 45, length: mtRun.length });
+  vents.push({ id: 'mToilet', name: 'Master toilet vent', size: 2, under: [V3(mtV.x, bendInv - k * 9 + 1.75, mtV.z), V3(mtV.x - 2, ventY, mtV.z), V3(mtF.x + 1, ventY + 0.1, mtV.z), V3(wallL, ventY + 0.4, mtV.z)], riser: { x: wallL, z: mtV.z } });
 
-  // ---- master shower: P-trap, 2" arm SE to a rolled vent wye, vent leg west to the left wall, 45° drop, E, ⅛ NE into the main
-  const ms = P.masterShower.drain;
-  const msV = { x: ms.x + 10, z: ms.z + 10 }, msA = { x: ms.x + 16, z: ms.z + 16 }, msE = { x: 35, z: ms.z + 16 };
-  const msW = NE(msE, X);
-  const msRun = profiled([{ x: ms.x, z: ms.z }, msV, msA, msE, msW], trapInv, flatInto(msW.z, 2), 2, 16);
-  runs.push({ id: 'mShower', name: 'Master shower', size: 2, pts: msRun.pts, trap: { x: ms.x, z: ms.z, dir: V3(1, 0, 1).normalize() }, wyeZ: msW.z, drop: msRun.drop, turns: 135, length: msRun.length, armToVent: Math.hypot(10, 10) });
-  vents.push({ id: 'mShower', name: 'Master shower vent', size: 2, under: [V3(msV.x, trapInv - 0.3 + 1.19, msV.z), V3(msV.x - 2, ventY, msV.z), V3(wallL, ventY + 0.5, msV.z)], riser: { x: wallL, z: msV.z } });
-
-  // ---- master lavatory: 1½" trap in the cabinet -> sanitary tee in the right wall (vent up), drop in the wall, long sweep west
-  const mv = P.masterVanity;
-  const mvW = NW({ x: 52.5, z: mv.sink.z }, X);
-  const mvEnd = flatInto(mvW.z, 2);
-  const mvLen = (wallR - 52.5) + Math.hypot(52.5 - X, mv.sink.z - mvW.z);
-  const mvRun = profiled([{ x: wallR, z: mv.sink.z }, { x: 52.5, z: mv.sink.z }, mvW], mvEnd + k * mvLen, mvEnd, 2, 0);
-  runs.push({ id: 'mLav', name: 'Master sink', size: 2, pts: [V3(wallR, 18, mv.sink.z), ...mvRun.pts], lav: { sink: mv.sink, wallX: wallR, facing: -1 }, wyeZ: mvW.z, drop: 0, turns: 90, length: mvRun.length });
-  vents.push({ id: 'mLav', name: 'Master sink vent', size: 2, under: [], riser: { x: wallR, z: mv.sink.z, y0: 18 } });
+  // ---- master shower. Default (owner, 2026-11-01): keep the EXISTING tub drain + vent as they are — no new pipe, no digging
+  //      (bathtub-to-shower retrofit ≤ 36"×60" may keep a 1½" trap and arm, Table 702.1 note 9). Drawn by buildExisting().
+  if (U.masterShowerRoute === 'main') {
+    const ms = P.masterShower.drain;
+    const msV = { x: ms.x + 10, z: ms.z + 10 }, msA = { x: ms.x + 16, z: ms.z + 16 }, msE = { x: 35, z: ms.z + 16 };
+    const msW = NE(msE, X);
+    const msRun = profiled([{ x: ms.x, z: ms.z }, msV, msA, msE, msW], trapInv, flatInto(msW.z, 2), 2, 16);
+    runs.push({ id: 'mShower', name: 'Master shower', size: 2, pts: msRun.pts, trap: { x: ms.x, z: ms.z, dir: V3(1, 0, 1).normalize() }, wyeZ: msW.z, drop: msRun.drop, turns: 135, length: msRun.length, armToVent: Math.hypot(10, 10) });
+    vents.push({ id: 'mShower', name: 'Master shower vent', size: 2, under: [V3(msV.x, trapInv - 0.3 + 1.19, msV.z), V3(msV.x - 2, ventY, msV.z), V3(wallL, ventY + 0.5, msV.z)], riser: { x: wallL, z: msV.z } });
+  }
 
   // ---- guest toilet: 3" closet bend east; the guest sink's wet vent joins it (toilet = last), then 45° drop, ⅛ NE into the main
   const gt = P.guestToilet, gtF = { x: gt.wallX + gt.roughIn, z: gt.cz };
@@ -5886,17 +6081,29 @@ function dwvLayout() {
   const gvEnd = gtInvAtJ + (OD[3] - OD[2]) / 2;
   const gvLen = Math.hypot(jx - wallL, gv.sink.z - gt.cz);
   const gvRun = profiled([{ x: wallL, z: gv.sink.z }, junction], gvEnd + k * gvLen, gvEnd, 2, 0);
-  runs.push({ id: 'gLav', name: 'Guest sink (wet vent)', size: 2, pts: [V3(wallL, 18, gv.sink.z), ...gvRun.pts], lav: { sink: gv.sink, wallX: wallL, facing: 1 }, joins: 'gToilet', drop: 0, turns: 135, length: gvRun.length, flangeToVent: jx - gtF.x });
+  runs.push({ id: 'gLav', name: 'Guest sink (wet vent)', size: 2, pts: [V3(wallL, 18, gv.sink.z), ...gvRun.pts], lav: { sink: gv.sink, wallX: wallL, facing: 1 }, joins: 'gToilet', joinNote: 'Joins the guest toilet drain — the toilet connects last (908.2.4)', drop: 0, turns: 135, length: gvRun.length, flangeToVent: jx - gtF.x });
   vents.push({ id: 'gLav', name: 'Guest sink dry vent (wet-vents the toilet)', size: 2, under: [], riser: { x: wallL, z: gv.sink.z, y0: 18 } });
-  cleanouts.push({ id: 'gLavCO', name: 'Upper-terminal cleanout (in the wall, behind the vanity)', at: V3(wallL + 1.5, 10, gv.sink.z), size: 1.5, kind: 'wall' });
+  cleanouts.push({ id: 'gLavCO', name: 'Upper-terminal cleanout (in the wall, behind the vanity)', from: V3(wallL, 10, gv.sink.z), at: V3(wallL + 1.75, 10, gv.sink.z), size: 1.5, kind: 'wall' });
 
-  // ---- guest shower: P-trap NW, 2" arm to a rolled vent wye under the middle wall (vent straight up the wall), 45° drop, NW into the main
+  // ---- guest shower + master sink share ONE 2" branch (owner's dry-fit; 2 + 1 = 3 DFU, 2" horizontal allows 8):
+  //      shower P-trap NW -> vent wye under the middle wall (vent straight up the wall) -> north, 45° drop -> ⅛ bend NW -> wye into the main.
+  //      The master sink runs straight west from its sanitary tee in the right wall and enters the NW leg through a 45° wye.
   const gs = P.guestShower.drain;
   const gsV = { x: gs.x - (gs.z - midZ), z: midZ };
-  const gsW = NW(gsV, X);
-  const gsRun = profiled([{ x: gs.x, z: gs.z }, gsV, gsW], trapInv, flatInto(gsW.z, 2), 2, Math.hypot(gs.x - gsV.x, gs.z - gsV.z) + 4);
-  runs.push({ id: 'gShower', name: 'Guest shower', size: 2, pts: gsRun.pts, trap: { x: gs.x, z: gs.z, dir: V3(-1, 0, -1).normalize() }, wyeZ: gsW.z, drop: gsRun.drop, turns: 45, length: gsRun.length, armToVent: Math.hypot(gs.x - gsV.x, gs.z - gsV.z) });
+  const gsN = { x: gsV.x, z: gsV.z - 18 };
+  const gsW = NW(gsN, X);
+  const gsArm = Math.hypot(gs.x - gsV.x, gs.z - gsV.z);
+  const gsRun = profiled([{ x: gs.x, z: gs.z }, gsV, gsN, gsW], trapInv, flatInto(gsW.z, 2), 2, gsArm + 4);
+  runs.push({ id: 'gShower', name: 'Guest shower', size: 2, pts: gsRun.pts, trap: { x: gs.x, z: gs.z, dir: V3(-1, 0, -1).normalize() }, wyeZ: gsW.z, drop: gsRun.drop, turns: 135, length: gsRun.length, armToVent: gsArm, carries: 'guest shower + master sink' });
   vents.push({ id: 'gShower', name: 'Guest shower vent (middle wall)', size: 2, under: [V3(gsV.x, trapInv - 0.15 + 1.19, gsV.z)], riser: { x: gsV.x, z: gsV.z } });
+
+  const mv = P.masterVanity;
+  const jS = { x: gsN.x - (gsN.z - mv.sink.z), z: mv.sink.z };             // where the sink's line meets the NW leg
+  const invJ = flatInto(gsW.z, 2) + k * Math.hypot(jS.x - gsW.x, jS.z - gsW.z);
+  const mvLen = wallR - jS.x;
+  const mvRun = profiled([{ x: wallR, z: mv.sink.z }, jS], invJ + k * mvLen, invJ, 2, 0);
+  runs.push({ id: 'mLav', name: 'Master sink', size: 2, pts: [V3(wallR, 18, mv.sink.z), ...mvRun.pts], lav: { sink: mv.sink, wallX: wallR, facing: -1 }, joins: 'gShower', joinNote: 'Joins the guest-shower line through a 45° wye (both fixtures keep their own vents)', drop: 0, turns: 90, length: mvRun.length });
+  vents.push({ id: 'mLav', name: 'Master sink vent', size: 2, under: [], riser: { x: wallR, z: mv.sink.z, y0: 18 } });
 
   // ---- main: head (just upstream of the last wye) to the tie-in combo, which sweeps east into the rebuilt 4" section
   const headZ = Math.max(...runs.filter((r) => r.wyeZ != null).map((r) => r.wyeZ)) + 8;
@@ -5907,6 +6114,132 @@ function dwvLayout() {
   cleanouts.push({ id: 'head', name: 'Optional head cleanout to a flush floor cover (if the inspector wants it, 707.6)', at: V3(X, mainInv(headZ) + OD[4], headZ), size: 3.5, kind: 'floor', optional: true });
 
   return { main, runs, vents, cleanouts, mainInv, inv0, headZ, ciX };
+}
+
+
+// ===== dwv_b.js =====
+// LAYOUT B (owner's sketch, 2026-11-01). Differences from Layout A (snapshots/layout-A_2026-11-01):
+//  - the main runs down the middle only as far as the new middle wall; its head is a 3" branch with a long-sweep ¼ bend running west
+//    under the middle wall, where both toilets tie in back-to-back on an ABS 3" 4-way (double wye)
+//  - the 4-way's fourth port is the toilets' vent: 3"→2" reducer, 2" leg under the slab to the left-wall corner, up the wall. The guest
+//    sink drains inside the left wall into that riser (wet vent below its tee)
+//  - mirrored on the right: the master sink drains inside the right wall into a riser at that corner, and a 2" branch from its foot
+//    runs under the middle wall to a wye on the main; the guest tub/shower (replacing the shower) joins it, with its own vent
+// Same rules as dwv.js: ⅛ bends / long sweeps only, wyes sweeping downstream, ¼"/ft, vents taken off ≥45° above horizontal.
+
+function dwvLayoutB() {
+  const P = PLAN, U = PLUMB, X = U.mainX, OD = U.absOD, d = U.dirt;
+  const k = U.slopePerFt / 12;
+  const wallL = -P.wallT.left / 2, wallR = P.interior.w + P.wallT.right / 2, midZ = (P.middleWall.z0 + P.middleWall.z1) / 2;
+  const inv0 = existingInvAt(X);
+  const sHead = midZ - d.lineZ;                             // developed length, tie-in -> the sweep
+  const mainInv = (z) => inv0 + k * (z - d.lineZ);          // north-south part
+  const branchInv = (x) => inv0 + k * (sHead + (X - x));    // middle-wall part, rising ¼"/ft going west
+  const runs = [], vents = [], cleanouts = [];
+  const r4 = OD[4] / 2, trapInv = -8.5;
+  const ciX = d.junction2to4X + 4;
+  // ---- toilets (PLUMB.bVariant)
+  //   1: one ABS 3" 4-way (double wye) lying flat under the middle wall (owner, 2026-11-01). Ports: the two toilets in the 45° side
+  //      branches, the outlet east to the main, and the upstream run port = the toilets' vent, reduced 3"→2" right at the fitting.
+  //   2: a VERTICAL 3" double fixture fitting straight between the two flanges, inside the middle wall's footprint (owner, 2026-11-02).
+  //      Both toilets come in level from opposite sides just under the slab (704.2), 3" drops from its bottom to a ¼ bend into the
+  //      horizontal head of the main (the "step"), and its top continues up the middle wall as their vent.
+  const v2 = U.bVariant === 2;
+  const fx = v2 ? P.masterToilet.wallX + P.masterToilet.roughIn : 30;   // the toilets' fitting: v2 sits in line with both flanges
+  const zW = midZ - 9;                                      // the right branch's 3×3×2 wye on the 3" head of the main
+  const incZ = zW - 4;                                      // 4×3 increaser: 4" from here to the tie-in
+  const r3 = OD[3] / 2, r2 = OD[2] / 2;
+  const cIn = -U.slabT - r3 - 0.5 - k * 18;                 // v2: inlets' centerline — the arms' tops stay under the slab
+  const vFit = v2 ? { at: V3(fx, cIn, midZ), top: cIn + 2.5, bot: cIn - 4 } : null;
+  if (vFit) vFit.baseFits = vFit.bot - (branchInv(fx) + r3) >= BEND_R.long(OD[3]);   // room for a long-sweep ¼ bend under it?
+  // 3" east to the main's line, a 3" long-sweep ¼ bend toward the window wall with room for its full radius (owner: not a tight 90°),
+  // past the right branch's wye, then the increaser. v2 starts with the drop from the fitting and the ¼ bend at its foot.
+  const branch3 = [...(v2 ? [V3(fx, cIn, midZ)] : []), V3(fx, branchInv(fx) + r3, midZ), V3(X, branchInv(X) + r3, midZ), V3(X, mainInv(incZ + 1) + r3, incZ + 1)];
+  const main = [V3(X, mainInv(incZ - 1) + r4, incZ - 1), V3(X, inv0 + r4, d.lineZ), V3(ciX, existingInvAt(ciX) + r4, d.lineZ)];
+  const toilet = (id, name, t) => {
+    const f = { x: t.wallX + t.roughIn, z: t.cz };
+    const j = { x: fx, z: midZ };
+    const end = v2 ? cIn - r3 : branchInv(fx), len = Math.hypot(j.x - f.x, j.z - f.z);
+    const run = profiled([f, j], end + k * len, end, 3, 0);   // straight from the closet bend: v1 45° into a side port, v2 level into a side inlet
+    runs.push({ id, name, size: 3, pts: run.pts, flange: f, joinAt: j, joinInv: end, into: v2 ? 'double fixture fitting' : null,
+      joinNote: v2 ? 'Comes in level to a side inlet of the vertical 3" double fixture fitting, opposite the other toilet (704.2)'
+        : 'Comes into a 45° side port of the 3" 4-way (back-to-back with the other toilet)', drop: 0, turns: v2 ? 0 : 135, length: run.length });
+  };
+  toilet('mToilet', 'Master toilet', P.masterToilet);
+  toilet('gToilet', 'Guest toilet', P.guestToilet);
+  // ---- left side, wet vent (owner, 2026-11-02). The guest sink drains INSIDE the left wall (1½" at ¼"/ft, through the studs) and
+  //      into the toilets' vent through a sanitary tee: above the tee it's their dry vent, below it a wet vent (sink water).
+  //   1: the 4-way's fourth port takes a 3"×2" reducer and a 2" leg under the slab to the left-wall corner, then up the wall
+  //   2: the 2" stack rising from the fitting in the middle wall; the sink drain turns the corner into the middle wall to it, so
+  //      the wet part is all vertical (908.1)
+  const lavDrop = 5;                                        // san. tee at the trap arm (vent up, flow DOWN), then a long-sweep ¼ bend in the wall's plane
+  const gv = P.guestVanity;
+  const inWallY = (z) => 18 - lavDrop - k * (gv.sink.z - z); // guest sink drain inside the left wall, falling ¼"/ft toward the corner
+  const teeY = inWallY(midZ) - (v2 ? k * (fx - wallL) : 0);
+  const sinkPts = [V3(wallL, 18, gv.sink.z), V3(wallL, 18 - lavDrop, gv.sink.z), V3(wallL, inWallY(midZ), midZ), ...(v2 ? [V3(fx, teeY, midZ)] : [])];
+  if (v2) {
+    runs.push({ id: 'gWet', name: 'Wet vent (sink water + toilet vent)', size: 2, pts: [V3(fx, teeY, midZ), V3(fx, vFit.top + 1.5, midZ)],
+      joinAt: { x: fx, z: midZ }, joinInv: vFit.top, into: 'top of the toilets\' fitting',
+      joinNote: 'Vertical wet vent: carries the guest sink\'s water straight down the middle wall into the top of the toilets\' fitting; also vents both toilets (908.1)', drop: 0, turns: 0, length: teeY - vFit.top });
+    vents.push({ id: 'gToiletsVent', name: 'Toilet vent (dry above the sink\'s tee) — up the middle wall', size: 2, under: [], riser: { x: fx, z: midZ, y0: teeY } });
+    cleanouts.push({ id: 'stackCO', name: 'Cleanout tee on the stack (middle wall, guest side) — upper terminal of the 3" head, 707.4', from: V3(fx, 4, midZ), at: V3(fx, 4, midZ + 1.75), size: 2, kind: 'wall' });
+  } else {
+    const vy0 = branchInv(fx) + r3;
+    const leg = [V3(fx - 4, vy0, midZ), V3(fx - 10, vy0 + 1.5, midZ), V3(4, -6, midZ), V3(wallL, -5.6, midZ)]; // 2" off the 4-way to the left wall
+    runs.push({ id: 'gWet', name: 'Wet vent (sink water + toilet vent)', size: 2, pts: [V3(wallL, teeY, midZ), ...leg.slice().reverse()],
+      joinAt: { x: fx, z: midZ }, joinInv: branchInv(fx), joinNote: 'Carries the guest sink\'s water down the wall and under the slab into the 4-way; also vents both toilets', drop: 0, turns: 90, length: 0 });
+    vents.push({ id: 'gToiletsVent', name: 'Toilet vent (dry above the sink\'s tee) — up the left wall', size: 2, under: [], riser: { x: wallL, z: midZ, y0: teeY } });
+    cleanouts.push({ id: 'wetCO', name: 'Cleanout at the bottom of the wet riser (in the wall at the corner) — 180° of turns, 707.4', from: V3(wallL, 4, midZ), at: V3(wallL + 1.75, 4, midZ), size: 2, kind: 'wall' });
+  }
+  // trap arm into a sanitary tee in the left wall (vent up, drain down — a tee can't turn horizontal-to-horizontal, 706.3), a short
+  // drop and a long-sweep ¼ bend turning along the wall, then inside the wall above the slab to the corner — no trench along the wall
+  runs.push({ id: 'gLav', name: 'Guest sink (in the wall)', size: 1.5, pts: sinkPts,
+    lav: { sink: gv.sink, wallX: wallL, facing: 1 }, inWall: true, joins: 'gWet', into: v2 ? '→ stack in the middle wall' : '→ wet vent riser',
+    joinNote: v2 ? 'Runs inside the left wall above the slab, turns the corner into the middle wall, into the toilets\' stack through a sanitary tee (wet vent)'
+      : 'Runs inside the left wall above the slab, into the toilets\' vent riser through a sanitary tee (wet vent)', drop: 0, turns: v2 ? 90 : 0, length: gv.sink.z - midZ + (v2 ? fx - wallL : 0) });
+  vents.push({ id: 'gLav', name: 'Guest sink vent', size: 2, under: [], riser: { x: wallL, z: gv.sink.z, y0: 18 } });
+  cleanouts.push({ id: 'gLavCO', name: 'Upper-terminal cleanout for the in-wall sink drain (behind the guest vanity)', from: V3(wallL, 22, gv.sink.z), at: V3(wallL + 1.75, 22, gv.sink.z), size: 1.5, kind: 'wall' });
+
+  // ---- right side, the same pattern mirrored (owner, 2026-11-02): the master sink drains inside the right wall to the middle-wall
+  //      corner, into a riser there through a sanitary tee (vent up, wet below). From the riser's foot a 2" branch runs west under the
+  //      middle wall, then a ⅛ bend takes it into a 3×3×2 wye on the 3" head of the main, past the long sweep. The guest tub/shower joins
+  //      that branch and keeps its own vent up the middle wall, so nothing on this side depends on the wet vent.
+  const mv = P.masterVanity;
+  const bendX = X + (midZ - zW);                            // the branch leaves the middle-wall line here, 45° toward the wye
+  const rInvW = mainInv(zW) + (OD[3] - OD[2]) / 2;          // 2" invert at the wye on the 3" head (centerlines meet)
+  const rInv = (x) => rInvW + k * (Math.SQRT2 * (bendX - X) + (x - bendX));   // under the middle wall, rising ¼"/ft going east
+  const mTeeY = 18 - lavDrop - k * (midZ - mv.sink.z);      // master sink drain inside the right wall, falling ¼"/ft toward the corner
+  const rPts = [V3(wallR, mTeeY, midZ), V3(wallR, rInv(wallR) + r2, midZ), V3(bendX, rInv(bendX) + r2, midZ), V3(X, rInvW + r2, zW)];
+  runs.push({ id: 'mWet', name: 'Right branch (master sink water + its vent riser)', size: 2, pts: rPts, wyeZ: zW, carries: 'master sink + guest tub/shower',
+    drop: 0, turns: 90, length: (mTeeY - rPts[1].y) + (wallR - bendX) + Math.SQRT2 * (bendX - X) });
+  // 1½": its link to the sink vent runs sideways through the 2×4 studs (a 2" bore is ~57% of a 3½" stud; 2" pipe needs ~71%).
+  // A 1½" vent takes up to 8 fixture units (Table 703.2) and is more than half the 2" branch it serves.
+  vents.push({ id: 'mCornerVent', name: 'Corner vent (dry above the master sink\'s tee)', size: 1.5, under: [], riser: { x: wallR, z: midZ, y0: mTeeY },
+    tie: { x: wallR, z: mv.sink.z, y: 84, name: 'the master sink vent (in the right wall, 84" up)' } });
+  cleanouts.push({ id: 'mWetCO', name: 'Cleanout at the foot of the corner riser (in the wall) — upper terminal of the right branch, 707.4', from: V3(wallR, 4, midZ), at: V3(wallR - 1.75, 4, midZ), size: 2, kind: 'wall' });
+  runs.push({ id: 'mLav', name: 'Master sink (in the wall)', size: 1.5, pts: [V3(wallR, 18, mv.sink.z), V3(wallR, 18 - lavDrop, mv.sink.z), V3(wallR, mTeeY, midZ)],
+    lav: { sink: mv.sink, wallX: wallR, facing: -1 }, inWall: true, joins: 'mWet', into: '→ corner riser',
+    joinNote: 'Runs inside the right wall above the slab, into the corner riser through a sanitary tee', drop: 0, turns: 0, length: midZ - mv.sink.z });
+  vents.push({ id: 'mLav', name: 'Master sink vent', size: 2, under: [], riser: { x: wallR, z: mv.sink.z, y0: 18 } });
+  cleanouts.push({ id: 'mLavCO', name: 'Upper-terminal cleanout for the in-wall sink drain (behind the master vanity)', from: V3(wallR, 22, mv.sink.z), at: V3(wallR - 1.75, 22, mv.sink.z), size: 1.5, kind: 'wall' });
+  // guest tub/shower: 2" trap → 7" arm → vent wye under the middle wall (vent up the wall) → 45° drop along the branch into a wye
+  // rolled up on it (the vent is taken off before the drop: no vent opening below the trap weir)
+  const gs = P.guestShower.drain;
+  const gsV = { x: gs.x - (gs.z - midZ), z: midZ };
+  const gsArm = Math.hypot(gs.x - gsV.x, gs.z - gsV.z);
+  const armEnd = V3(gsV.x, trapInv + r2 - k * gsArm, midZ);
+  const dropD = armEnd.y - (rInv(gsV.x) + r2), jx = gsV.x - dropD;
+  runs.push({ id: 'gShower', name: 'Guest tub/shower', size: 2, pts: [V3(gs.x, trapInv + r2, gs.z), armEnd, V3(jx, rInv(jx) + r2, midZ)],
+    trap: { x: gs.x, z: gs.z, dir: V3(-1, 0, -1).normalize() }, joins: 'mWet', joinAt: { x: jx, z: midZ }, joinInv: rInv(jx), into: 'right branch',
+    joinNote: 'Vent wye under the middle wall, then a 45° drop into a wye rolled up on the 2" right branch', drop: dropD, turns: 45, length: gsArm + Math.SQRT2 * dropD, armToVent: gsArm });
+  vents.push({ id: 'gShower', name: 'Guest tub/shower vent (middle wall)', size: 2, under: [V3(gsV.x, trapInv - 0.15 + 1.19, gsV.z)], riser: { x: gsV.x, z: gsV.z } });
+
+  // ---- tie-in cleanouts (same as Layout A)
+  cleanouts.push({ id: 'twoWay', name: '4" two-way cleanout to grade (yard box) — 707.4 exc. 4 / 719.1', at: V3(X, mainInv(d.lineZ + 6) + OD[4], d.lineZ + 6), size: 4, kind: 'grade' });
+  cleanouts.push({ id: 'corner', name: 'Cleanout at the septic corner (old toilet inlet) — 180° of turns, 707.4', at: V3(d.toiletJoinX, existingInvAt(d.toiletJoinX) + U.ciOD, d.lineZ), size: 4, kind: 'grade' });
+
+  return { main, runs, vents, cleanouts, mainInv, inv0, headZ: midZ, headInv: branchInv(fx), ciX, tie: main[1], branchInv,
+    branch3, fourWay: v2 ? null : V3(fx, branchInv(fx) + r3, midZ), vFit, mainPoly: [{ x: fx, z: midZ }, { x: X, z: midZ }, { x: X, z: 0 }] };
 }
 
 
@@ -5925,15 +6258,59 @@ function buildDwvDrains(L) {
   const g = new THREE.Group();
   const U = PLUMB, OD = U.absOD;
   // main (the corner at the tie-in is the 4×4×4 combo sweeping into the rebuilt 4" section)
-  g.add(tag(sweepPipe(L.main, OD[4], PMAT.drain), `<b>New 4" ABS building drain</b><br>¼"/ft, from ${fmtIn(-(L.mainInv(L.headZ)))} deep at its head to ${fmtIn(-L.inv0)} at the tie-in`));
-  const t = L.main[1];
-  pipeLabel(g, `4×4×4 combo on its side · ${fmtIn(-L.inv0)} deep`, t.x - 14, t.y - 7, t.z + 2);
-  pipeLabel(g, `4" ABS → buried-rated (ASTM C1173) coupling → cast iron`, (t.x + L.ciX) / 2 + 8, t.y + 8, t.z - 4);
-  // kitchen 2" into the combo's run hub through a 4×2 reducer
+  g.add(tag(sweepPipe(L.main, OD[4], PMAT.drain), `<b>New 4" ABS building drain</b><br>¼"/ft, from ${fmtIn(-(L.headInv != null ? L.headInv : L.mainInv(L.headZ)))} deep at its head to ${fmtIn(-L.inv0)} at the tie-in`));
+  const t = L.tie || L.main[1];
+  pipeLabel(g, `4×4×4 combo on its side · ${fmtIn(-L.inv0)} deep`, t.x, t.y - 6, t.z);
+  // the combo's straight run: one 4" piece from its run hub (west) to where the main's sweep ends (east), so the main curves into its
+  // side; the kitchen 2" comes into the run hub through a 4×2 reducer (4" end on the combo, 2" end toward the kitchen)
+  const ti = L.main.indexOf(t), next = L.main[ti + 1], dir = next.clone().sub(t).normalize();
+  const back = Math.min(BEND_R.long(OD[4]), t.distanceTo(L.main[ti - 1]) / 2, t.distanceTo(next) / 2);   // = the sweep's end (fittings.js)
+  g.add(tag(sweepPipe([t.clone().addScaledVector(dir, back), t.clone().addScaledVector(dir, -OD[4] / 2)], OD[4], PMAT.drain, { hubs: false, capEnd: true }),
+    `<b>4×4×4 combo on its side</b> — the main sweeps into its side; the kitchen 2" comes into its run hub · ${fmtIn(-L.inv0)} deep`));
   const red = new THREE.Mesh(new THREE.CylinderGeometry(OD[4] / 2, OD[2] / 2, 3, 20), PMAT.drain);
-  red.rotation.z = Math.PI / 2;
-  red.position.set(t.x - OD[4] / 2 - 2.2, t.y, t.z);
+  red.rotation.z = -Math.PI / 2;
+  red.position.set(t.x - OD[4] / 2 - 1.5, t.y, t.z);
   g.add(tag(red, '<b>4×2 reducer</b> — kitchen 2" into the new combo (increase in the direction of flow)'));
+  // buried-rated coupling where the new 4" ABS meets the existing cast iron
+  const e = L.main[L.main.length - 1];
+  const cpl = new THREE.Mesh(new THREE.CylinderGeometry(PLUMB.ciOD / 2 * 1.18, PLUMB.ciOD / 2 * 1.18, 4, 24), PMAT.trapFit);
+  cpl.rotation.z = Math.PI / 2;
+  cpl.position.copy(e);
+  g.add(tag(cpl, '<b>Buried-rated coupling</b> (ASTM C1173) — new 4" ABS to the existing 4" cast iron. Proflex / Band-Seal are above-ground only.'));
+  pipeLabel(g, `4" ABS → buried-rated (ASTM C1173) coupling → cast iron`, e.x + 4, e.y + 7, e.z);
+
+  // Layout B: the toilets' fitting and the 3" head of the main, ending in the 4×3 increaser.
+  //   B1: the flat 3" 4-way under the middle wall, its 3"→2" reducer (vent / wet-vent port, west), the 3" east to the long sweep
+  //   B2: the vertical 3" double fixture fitting, its 3"×2" reducer on top (the wet vent up the middle wall), the 3" drop to the
+  //       ¼ bend at its foot, then east to the long sweep
+  if (L.fourWay || L.vFit) {
+    const b = L.branch3, sweep = 'long-sweep ¼ bend toward the window wall, the right branch\'s 3×3×2 wye, then the 4×3 increaser';
+    if (L.fourWay) {
+      const w = L.fourWay, xAxis = (m) => { m.rotation.z = Math.PI / 2; return m; };
+      const body = xAxis(new THREE.Mesh(new THREE.CylinderGeometry(OD[3] / 2 * 1.13, OD[3] / 2 * 1.13, 5, 20), PMAT.drain));
+      body.position.copy(w);
+      g.add(tag(body, '<b>ABS 3" 4-way (double wye)</b> — both toilets in the 45° side ports, outlet east to the main, upstream port = vent (3"→2" reducer)'));
+      const red32 = xAxis(new THREE.Mesh(new THREE.CylinderGeometry(OD[2] / 2, OD[3] / 2, 1.5, 20), PMAT.drain));
+      red32.position.set(w.x - 3.25, w.y, w.z);
+      g.add(tag(red32, '<b>3"×2" reducer</b> on the 4-way\'s upstream port — the toilets\' 2" vent leg'));
+      g.add(tag(sweepPipe([V3(w.x + 2.5, w.y, w.z), ...b.slice(1)], OD[3], PMAT.drain), `<b>3" head of the main</b> — from the 4-way under the middle wall, 3" ${sweep}`));
+    } else {
+      const f = L.vFit;
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(OD[3] / 2 * 1.13, OD[3] / 2 * 1.13, f.top - f.bot, 20), PMAT.drain);
+      body.position.set(f.at.x, (f.top + f.bot) / 2, f.at.z);
+      g.add(tag(body, '<b>3" double fixture fitting, standing vertical</b> — both toilets come in level from opposite sides (CPC 704.2); 3"×2" reducer on top (the wet vent up the middle wall), 3" out the bottom'));
+      const red32 = new THREE.Mesh(new THREE.CylinderGeometry(OD[2] / 2, OD[3] / 2, 1.5, 20), PMAT.drain);   // 2" end up
+      red32.position.set(f.at.x, f.top + 0.75, f.at.z);
+      g.add(tag(red32, '<b>3"×2" reducer</b> on top of the toilets\' fitting — the 2" wet vent up the middle wall'));
+      g.add(tag(sweepPipe(b, OD[3], PMAT.drain), `<b>3" head of the main</b> — drops ${fmtIn(f.bot - b[1].y)} from the toilets' fitting to a ${f.baseFits ? 'long-sweep' : 'short-sweep (3" may turn vertical → horizontal on a short sweep, 706 — no room for a long one at this depth)'} ¼ bend, east under the middle wall, then a 3" ${sweep}`));
+    }
+    const e = b[b.length - 1], dir = e.clone().sub(b[b.length - 2]).normalize();
+    const inc = new THREE.Mesh(new THREE.CylinderGeometry(OD[4] / 2, OD[3] / 2, 2, 20), PMAT.drain);   // 4" end downstream
+    inc.quaternion.setFromUnitVectors(V3(0, 1, 0), dir);
+    inc.position.copy(e).addScaledVector(dir, 1);
+    inc.position.y += (OD[4] - OD[3]) / 4;
+    g.add(tag(inc, '<b>4×3 increaser</b> — the 3" head into the 4" main (increase in the direction of flow)'));
+  }
 
   for (const r of L.runs) {
     const od = OD[r.size];
@@ -5951,12 +6328,14 @@ function buildDwvDrains(L) {
       g.add(tag(ring, `<b>${r.name} — 4×3 closet flange</b> on the finished floor, 3×4 closet bend below`));
     }
     if (r.lav) g.add(buildLavTrap(r));
-    const info = `<b>${r.name}</b> — ${r.size}" ${r.joins ? 'horizontal wet vent' : 'branch'}<br>${fmtIn(r.length)} run` +
+    const info = `<b>${r.name}</b> — ${r.size}" ${r.joins === 'gToilet' ? 'horizontal wet vent' : 'branch'}${r.carries ? ` (carries the ${r.carries})` : ''}<br>${fmtIn(r.length)} run` +
       (r.drop ? `, 45° drop of ${fmtIn(r.drop)} after the vent` : '') + `, ${r.turns}° of turns` +
-      (r.wyeZ != null ? `<br>Enters the main through a 45° wye at ${fmtIn(-(L.mainInv(r.wyeZ)))} deep` : '<br>Joins the guest toilet drain — the toilet connects last (908.2.4)');
+      (r.wyeZ != null ? `<br>Enters the main through a 45° wye at ${fmtIn(-(L.mainInv(r.wyeZ)))} deep` : `<br>${r.joinNote}`);
     g.add(tag(sweepPipe(pts, od, PMAT.drain), info));
-    const f = r.trap || r.flange || { x: r.lav.wallX, z: r.lav.sink.z };
+    const f = r.trap || r.flange || (r.lav ? { x: r.lav.wallX, z: r.lav.sink.z } : { x: r.pts[0].x, z: r.pts[0].z });
     pipeLabel(g, `${r.name.replace(' (wet vent)', '')} ${r.size}"`, f.x, 7, f.z);
+    if (r.joins === 'gShower') { const e = r.pts[r.pts.length - 1]; pipeLabel(g, 'master sink joins (45° wye)', e.x + 6, e.y - 4, e.z + 4); }
+    if (r.joinLabel) pipeLabel(g, `${r.joinLabel} · ${fmtIn(-r.joinInv)}`, r.joinAt.x, r.joinInv - 4, r.joinAt.z);
     if (r.wyeZ != null) pipeLabel(g, `wye · ${fmtIn(-(L.mainInv(r.wyeZ)))}`, U.mainX + (r.pts[r.pts.length - 2].x < U.mainX ? -9 : 9), L.mainInv(r.wyeZ) - 3, r.wyeZ);
   }
   for (const c of L.cleanouts) g.add(buildCleanout(c));
@@ -5987,7 +6366,12 @@ function buildCleanout(c) {
     g.add(sweepPipe([c.at, V3(c.at.x, 0.2, c.at.z)], od, mat, { hubs: false }));
     g.add(capDisk(V3(c.at.x, 0.4, c.at.z), od, PMAT.trapFit));
   } else {
-    g.add(capDisk(c.at, od, PMAT.trapFit));
+    // in-wall cleanout tee: short stub off the pipe to the wall face, threaded plug facing the room (behind an access panel)
+    if (c.from) g.add(sweepPipe([c.from, c.at], od, mat, { hubs: false }));
+    const cap = capDisk(c.at, od, PMAT.trapFit);
+    if (c.from) cap.quaternion.setFromUnitVectors(V3(0, 1, 0), c.at.clone().sub(c.from).normalize());   // plug faces the room
+    else cap.rotation.z = Math.PI / 2;
+    g.add(cap);
   }
   pipeLabel(g, c.optional ? 'Head cleanout (optional)' : 'Cleanout', c.at.x, (c.kind === 'grade' ? -3 : c.at.y + 4), c.at.z);
   return tag(g, `<b>${c.name}</b>`);
@@ -5997,13 +6381,15 @@ function buildCleanout(c) {
 // (master fixtures -> master hole, guest fixtures -> guest hole).
 function buildDwvVents(L) {
   const g = new THREE.Group();
-  const od2 = PLUMB.absOD[2];
   for (const v of L.vents) {
     const r = v.riser, stack = PLUMB.roofVents[v.id[0] === 'm' ? 'master' : 'guest'];
     const pts = v.under.length ? v.under.slice() : [V3(r.x, r.y0, r.z)];
-    const yh = VENT_HEADER_Y + (Math.abs(r.x - stack.x) > 1 ? 0 : 1);
-    pts.push(V3(r.x, yh - 4, r.z), V3(r.x, yh, stack.z), V3(stack.x, yh + 0.5, stack.z));
-    g.add(tag(sweepPipe(pts, od2, PMAT.vent, { bend: v.under.length ? 'long' : 'short' }), `<b>${v.name}</b> — 2"<br>${v.under.length ? 'Leg under the slab in drainage fittings, rolled ≥45° off the drain and graded back (905.2/905.3), then up the wall' : 'Straight up the wall from the fitting'} → attic → ${v.id[0] === 'm' ? 'master' : 'guest'} roof vent`));
+    if (v.tie) pts.push(V3(r.x, v.tie.y, r.z), V3(v.tie.x, v.tie.y, v.tie.z));   // joins another vent's riser inside the wall
+    else {
+      const yh = VENT_HEADER_Y + (Math.abs(r.x - stack.x) > 1 ? 0 : 1);
+      pts.push(V3(r.x, yh - 4, r.z), V3(r.x, yh, stack.z), V3(stack.x, yh + 0.5, stack.z));
+    }
+    g.add(tag(sweepPipe(pts, PLUMB.absOD[v.size], PMAT.vent, { bend: v.under.length ? 'long' : 'short' }), `<b>${v.name}</b> — ${v.size}"<br>${v.how || (v.under.length ? 'Leg under the slab in drainage fittings, rolled ≥45° off the drain and graded back (905.2/905.3), then up the wall' : 'Straight up the wall from the fitting')} → ${v.tie ? `ties into ${v.tie.name}` : `attic → ${v.id[0] === 'm' ? 'master' : 'guest'} roof vent`}`));
   }
   for (const [name, s] of Object.entries(PLUMB.roofVents)) {
     const top = roofY(s.z) + 12, od = PLUMB.absOD[s.size];
@@ -6030,7 +6416,12 @@ function dwvCuts(L) {
   const under = (p) => p.y < -PLUMB.slabT + 0.5;
   // main: indoors only (the dirt strip is digging, not concrete)
   const head = L.main[0];
-  strip({ x: U.mainX, z: 0 }, head, U.trench[4], L.mainInv(head.z) - 3, 'Main trench (4")');
+  if (L.mainPoly) {                     // Layout B: main + toilet branch under the middle wall
+    for (let i = 0; i < L.mainPoly.length - 1; i++) {
+      const a = L.mainPoly[i], b = L.mainPoly[i + 1];
+      strip(a, b, U.trench[i === 0 ? 3 : 4], Math.min(L.branchInv(Math.min(a.x, b.x)), L.mainInv(Math.min(a.z, b.z))) - 3, i === 0 ? 'Toilet branch trench (3", under the middle wall)' : 'Main trench (4")');
+    }
+  } else strip({ x: U.mainX, z: 0 }, head, U.trench[4], L.mainInv(head.z) - 3, 'Main trench (4")');
   box(U.mainX, (U.footing.w - P.wallT.top) / 2, U.trench[4], U.footing.w - P.wallT.top, L.inv0 - 3, 'Footing crossing — core + sleeve (312.10)');
   for (const r of L.runs) {
     const pts = r.pts.filter(under);
@@ -6039,7 +6430,7 @@ function dwvCuts(L) {
     }
     if (r.trap) box(r.trap.x, r.trap.z, 18, 18, -14, `${r.name} trap box`);
     if (r.flange) box(r.flange.x, r.flange.z, 16, 16, r.pts[0].y - 4, `${r.name} closet bend`);
-    if (r.lav) box(r.lav.wallX + (r.lav.facing > 0 ? 7 : -7), r.lav.sink.z, 14, 14, r.pts[1].y - 4, `${r.name} drop at the wall`);
+    if (r.lav && !r.inWall) box(r.lav.wallX + (r.lav.facing > 0 ? 7 : -7), r.lav.sink.z, 14, 14, r.pts[1].y - 4, `${r.name} drop at the wall`);
   }
   for (const v of L.vents) {
     for (let i = 0; i < v.under.length - 1; i++) strip(v.under[i], v.under[i + 1], 12, -9, `${v.name} leg`);
@@ -6103,6 +6494,148 @@ function buildDwvCuts(cuts) {
     }
   }
   return g;
+}
+
+
+// ===== water.js =====
+// WATER SUPPLY (proposed). Owner's plan (2026-11-01): reuse the old shower's hot/cold supply stubs, which come up out of the
+// slab inside the window wall; keep the master shower valve there; tee up into the attic; run PEX trunks in the attic and drop
+// down inside the walls to every other fixture. Nothing is trenched for water. Cold = blue, hot = red (usual PEX colors).
+// Code notes: notes/code_water.md (2025 CPC research): 11 WSFU (9.5 cold / 4.5 hot) -> ¾" shared source, riser and trunks
+// (Table 610.4: ½" carries only 3–7 WSFU), one ½" drop per fixture.
+
+const WMAT = {};
+const WATER = {
+  src: { hotX: 11.5, coldX: 18.5, z: -PLAN.wallT.top / 2 }, // existing stubs at the old valve, window wall (photo, ±3")
+  atticHot: 104.5, atticCold: 101.5,                          // trunk heights, just above the ceiling joists
+  trunkHotX: 4.5, trunkColdX: 8,                              // trunks run down the left side of the attic
+  od: { 0.75: 0.875, 0.5: 0.625 },                            // PEX outside diameters
+};
+
+function initWaterMaterials() {
+  WMAT.hot = new THREE.MeshStandardMaterial({ color: 0xd64b3c, roughness: 0.45 });
+  WMAT.cold = new THREE.MeshStandardMaterial({ color: 0x2b7bd6, roughness: 0.45 });
+  WMAT.copper = new THREE.MeshStandardMaterial({ color: 0xb87333, metalness: 0.6, roughness: 0.35 });
+  WMAT.valve = new THREE.MeshStandardMaterial({ color: 0xd8dadc, metalness: 0.9, roughness: 0.25 });
+}
+
+// Supply points where each line stubs out of the wall. Hot is on the user's left when facing the fixture.
+function waterFixtures() {
+  const P = PLAN, wallL = -P.wallT.left / 2, wallR = P.interior.w + P.wallT.right / 2, midZ = (P.middleWall.z0 + P.middleWall.z1) / 2;
+  const S = WATER.src, gx = P.guestShower.drain.x;
+  const gy = PLUMB.layout === 'B' ? 32 : 48; // tub/shower valve ~32" (Moen), shower valve 45–48"
+  return [
+    { id: 'mShower', name: 'Master shower valve', wsfu: 2, size: 0.5, valve: { x: 15, y: 48, z: S.z }, head: 80, face: V3(0, 0, 1),
+      hot: { x: S.hotX, y: 48, z: S.z }, cold: { x: S.coldX, y: 48, z: S.z }, direct: true },
+    { id: 'mLav', name: 'Master sink', wsfu: 1, size: 0.5, face: V3(-1, 0, 0),
+      hot: { x: wallR, y: 21, z: P.masterVanity.sink.z - 4 }, cold: { x: wallR, y: 21, z: P.masterVanity.sink.z + 4 } },
+    { id: 'mToilet', name: 'Master toilet', wsfu: 2.5, size: 0.5, face: V3(1, 0, 0), cold: { x: wallL, y: 8, z: P.masterToilet.cz + 6 } },
+    { id: 'gShower', name: PLUMB.layout === 'B' ? 'Guest tub/shower valve' : 'Guest shower valve', wsfu: PLUMB.layout === 'B' ? 4 : 2, size: 0.5,
+      valve: { x: gx, y: gy, z: midZ }, head: 80, face: V3(0, 0, 1), hot: { x: gx - 4, y: gy, z: midZ }, cold: { x: gx + 4, y: gy, z: midZ } },
+    { id: 'gToilet', name: 'Guest toilet', wsfu: 2.5, size: 0.5, face: V3(1, 0, 0), cold: { x: wallL, y: 8, z: P.guestToilet.cz + 6 } },
+    { id: 'gLav', name: 'Guest sink', wsfu: 1, size: 0.5, face: V3(1, 0, 0),
+      hot: { x: wallL, y: 21, z: P.guestVanity.sink.z + 4 }, cold: { x: wallL, y: 21, z: P.guestVanity.sink.z - 4 } },
+  ];
+}
+
+// Branch from an attic trunk to a supply point: across the attic at trunk height, then straight down inside the wall.
+function dropPath(trunkX, trunkY, p) {
+  return [V3(trunkX, trunkY, p.z), V3(p.x, trunkY, p.z), V3(p.x, p.y, p.z)];
+}
+
+function angleStop(p, face, material) {
+  const g = new THREE.Group();
+  const stub = sweepPipe([V3(p.x, p.y, p.z), V3(p.x + face.x * 2.5, p.y, p.z + face.z * 2.5)], WATER.od[0.5], WMAT.copper, { hubs: false });
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.75, 14, 10), WMAT.valve);
+  body.position.set(p.x + face.x * 3, p.y, p.z + face.z * 3);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 0.5), material);
+  handle.position.set(p.x + face.x * 3.6, p.y + 0.4, p.z + face.z * 3.6);
+  g.add(stub, body, handle);
+  return g;
+}
+
+function buildWater() {
+  const g = new THREE.Group();
+  const W = WATER, S = W.src, od34 = W.od[0.75], od12 = W.od[0.5];
+  const fx = waterFixtures();
+  // source: existing copper stubs out of the slab, then new PEX risers up the window wall to the attic
+  for (const [x, top, mat, label] of [[S.hotX, W.atticHot, WMAT.hot, 'Hot'], [S.coldX, W.atticCold, WMAT.cold, 'Cold']]) {
+    g.add(tag(sweepPipe([V3(x, -2, S.z), V3(x, 12, S.z)], od34, WMAT.copper, { hubs: false }), `<b>Existing ${label.toLowerCase()} supply stub</b> — from the old shower, comes up out of the slab. Reused; check its size (½" vs ¾").`));
+    g.add(tag(sweepPipe([V3(x, 12, S.z), V3(x, top, S.z), V3(x === S.hotX ? W.trunkHotX : W.trunkColdX, top, S.z + 6)], od34, mat, { bend: 'short', hubs: false }), `<b>${label} riser</b> — ¾" PEX up the window wall to the attic`));
+    const v = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 2.2, 14), WMAT.valve);
+    v.position.set(x, 99, S.z);
+    g.add(tag(v, `<b>${label} shutoff for both bathrooms</b> — optional ¾" full-port ball valve (606.4), labeled, within reach of the attic hatch`));
+  }
+  pipeLabel(g, 'Existing H/C stubs from the old shower (reused)', (S.hotX + S.coldX) / 2, 4, S.z + 8, 'water');
+  pipeLabel(g, 'Shutoffs (attic, optional)', (S.hotX + S.coldX) / 2, 99, S.z + 6, 'water');
+  // attic trunks down the left side, as far as the guest sink
+  const far = Math.max(...fx.flatMap((f) => [f.hot, f.cold]).filter(Boolean).map((p) => p.z));
+  g.add(tag(sweepPipe([V3(W.trunkHotX, W.atticHot, S.z + 6), V3(W.trunkHotX, W.atticHot, far)], od34, WMAT.hot, { hubs: false }), '<b>Hot trunk</b> — ¾" PEX in the attic, insulated (CA Energy Code)'));
+  g.add(tag(sweepPipe([V3(W.trunkColdX, W.atticCold, S.z + 6), V3(W.trunkColdX, W.atticCold, far)], od34, WMAT.cold, { hubs: false }), '<b>Cold trunk</b> — ¾" PEX in the attic'));
+  // each fixture
+  for (const f of fx) {
+    for (const [side, mat, trunkX, trunkY] of [['hot', WMAT.hot, W.trunkHotX, W.atticHot], ['cold', WMAT.cold, W.trunkColdX, W.atticCold]]) {
+      const p = f[side];
+      if (!p) continue;
+      if (f.direct) {
+        g.add(sweepPipe([V3(p.x, p.y, p.z), V3(f.valve.x + (side === 'hot' ? -1.5 : 1.5), p.y, p.z)], od12, mat, { hubs: false }));
+        continue;
+      }
+      g.add(tag(sweepPipe(dropPath(trunkX, trunkY, p), od12, mat, { bend: 'short', hubs: false }), `<b>${f.name} — ${side}</b><br>½" PEX from the attic trunk, down inside the wall to ${fmtIn(p.y)} above the floor`));
+      if (!f.valve) g.add(angleStop(p, f.face, mat));
+      else g.add(sweepPipe([V3(p.x, p.y, p.z), V3(f.valve.x + (side === 'hot' ? -1.5 : 1.5), p.y, p.z)], od12, mat, { hubs: false }));
+    }
+    if (f.valve) {
+      const body = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3), WMAT.valve);
+      body.position.set(f.valve.x, f.valve.y, f.valve.z);
+      g.add(tag(body, `<b>${f.name}</b> — pressure-balance or thermostatic valve; set its limit stop to ≤120°F (408.4.2). Center 45–48" above the shower floor.`));
+      g.add(sweepPipe([V3(f.valve.x, f.valve.y + 1.5, f.valve.z), V3(f.valve.x, f.head, f.valve.z)], od12, WMAT.copper, { hubs: false }));
+    }
+    const lab = f.valve || f.cold;
+    pipeLabel(g, `${f.name.replace(' valve', '')} ${f.hot ? 'H+C' : 'C'}`, lab.x + f.face.x * 6, lab.y + 6, lab.z + f.face.z * 6, 'water');
+  }
+  return g;
+}
+
+// ---------------- panel + hookup ----------------
+const WTR = { root: null, scene: null };
+
+function initWater(scene) {
+  initWaterMaterials();
+  WTR.scene = scene;
+  rebuildWater();
+}
+
+// Pipes + panel. Rebuilt on a layout switch (Layout B's guest shower valve is a tub/shower valve, lower, with a spout).
+function rebuildWater() {
+  if (WTR.root) { disposeLabels(WTR.root); WTR.scene.remove(WTR.root); }
+  WTR.root = buildWater();
+  WTR.scene.add(WTR.root);
+  const fx = waterFixtures();
+  const total = fx.reduce((a, f) => a + f.wsfu, 0);
+  const rows = fx.map((f) => `<tr><td>${f.name.replace(' valve', '')}</td><td class="num">${f.hot ? 'H+C' : 'C'}</td><td class="num">${f.wsfu}</td><td class="num">½"</td><td class="num">${fmtIn((f.valve || f.cold).y)}</td></tr>`).join('');
+  $('waterPanel').innerHTML = `
+    <h2>Water supply <span class="draft">PROPOSED</span></h2>
+    <div class="help"><span class="key" style="background:#d64b3c"></span>hot <span class="key" style="background:#2b7bd6"></span>cold <span class="key" style="background:#b87333"></span>existing copper.
+      Source: the old shower's stubs in the window wall (reused, no trenching) → shutoffs → ¾" PEX trunks in the attic → ½" drops inside the walls.</div>
+    <table class="mini"><tr><th>Fixture</th><th>Lines</th><th>WSFU</th><th>Pipe</th><th>Stub height</th></tr>${rows}
+      <tr><td><b>Total</b></td><td></td><td class="num"><b>${total}</b></td><td class="num">¾" trunks</td><td></td></tr></table>
+    <div class="muted">Cold side ${fx.reduce((a, f) => a + (f.hot ? f.wsfu * 0.75 : f.wsfu), 0)} WSFU, hot side ${fx.reduce((a, f) => a + (f.hot ? f.wsfu * 0.75 : 0), 0)} WSFU (fixtures with both lines count ¾ to each).</div>
+    <div class="warnbox">
+      <b>1. Measure the existing stubs.</b> ⅞" outside diameter = ¾" copper (good); ⅝" = ½", which can carry only 3–7 fixture units (Table 610.4). If ½": use them for the master shower only and bring a new ¾" feed to the attic, or replace them back to a ¾" line while the slab is open.<br>
+      <b>2. Toilets must be 1.28 gal/flush</b> (CPC 411.2) — 1.6 gpf models aren't allowed.<br>
+      <b>3. Stops required</b> at each sink and toilet (606.5). The attic shutoffs are optional but worth it.<br>
+      <b>4. Shower valves:</b> pressure-balance or thermostatic, limit stop set at ≤120°F (408.4.2).<br>
+      <b>5. PEX in the attic</b> (IAPMO IS 31): plastic clips every ≤32", ≥18" from any soldering, ≥6" from flues; protect from sun.<br>
+      <b>6. Insulate the hot lines</b>: insulation as thick as the pipe (¾" on ¾") — CA Energy Code. Pipes in the exterior wall stay on the room side of the insulation (312.6).<br>
+      <b>7. Pressure:</b> over 80 psi static needs a pressure regulator + expansion tank (608.2).<br>
+      <b>8. Test</b> with water at ≥ working pressure (80–100 psi typical) for 15 min before walls close (609.4, 105.2.1.1). Cap the old toilet/sink stubs at the slab.
+    </div>
+    <div class="muted" id="waterResearch">Code check of these sizes and rules: notes/code_water.md.</div>`;
+}
+
+function applyWaterToggles() {
+  if (WTR.root) WTR.root.visible = $('chkWater').checked;
 }
 
 
@@ -6181,6 +6714,12 @@ function init() {
   Object.assign(APP, { renderer, labelRenderer, scene, persp, orbit, ortho, top, walkCam, view, sun });
   sizeOrtho();
 
+  const saved = loadState();
+  if (saved && saved.plumb) {
+    delete saved.plumb.masterShowerRoute; // decided by the owner (existing tub plumbing); never restore an older saved choice
+    Object.assign(PLUMB, saved.plumb);    // before the fixtures + panels are built: saved layout, controls show the saved values
+  }
+
   // scene content
   const L = APP.layers;
   L.floors = buildFloors(); scene.add(L.floors);
@@ -6188,15 +6727,16 @@ function init() {
   L.doors = buildDoors(); scene.add(L.doors);
   L.window = buildWindow(); scene.add(L.window);
   L.fixtures = buildFixtures(); scene.add(L.fixtures);
+  scene.add(buildAvatar());
   L.swings = buildDoorSwings(); scene.add(L.swings);
   L.dims = buildDims(); scene.add(L.dims);
   L.measure = new THREE.Group(); scene.add(L.measure);
   COLLIDERS.push(...wallColliders());
-  const saved = loadState();
-  if (saved && saved.plumb) Object.assign(PLUMB, saved.plumb); // before the panel is built, so its controls show the saved values
   if (typeof initPlumbing === 'function') initPlumbing(scene);
+  if (typeof initWater === 'function') initWater(scene);
 
   wireUI();
+  updateLayoutUI();
   applyState(saved);
   STATE_READY = true;
   orbit.addEventListener('end', saveState);
@@ -6250,7 +6790,7 @@ function keyFly(dt) {
 
 // ---------------- saved settings (localStorage) ----------------
 const STATE_KEY = 'bathroom-remodel-viewer-v1';
-const STATE_CHECKS = ['chkDims', 'chkDoors', 'chkPlumb', 'chkPipes', 'chkVents', 'chkCuts', 'chkExist'];
+const STATE_CHECKS = ['chkDims', 'chkDoors', 'chkFloor', 'chkText', 'chkPlumb', 'chkPipes', 'chkVents', 'chkCuts', 'chkExist', 'chkWater'];
 let STATE_READY = false; // no saving while restoring
 
 function collectState() {
@@ -6259,10 +6799,10 @@ function collectState() {
     mode: APP.mode,
     cut: APP.mode === 'walk' ? APP.cutBeforeWalk : APP.cutH,
     checks: Object.fromEntries(STATE_CHECKS.filter((id) => $(id)).map((id) => [id, $(id).checked])),
-    plumb: { tieIn: U.tieIn, masterShowerRoute: U.masterShowerRoute, depthTo: U.depthTo, slopePerFt: U.slopePerFt, tieInDepth: U.tieInDepth, mainX: U.mainX },
+    plumb: { layout: U.layout, bVariant: U.bVariant, tieIn: U.tieIn, depthTo: U.depthTo, slopePerFt: U.slopePerFt, tieInDepth: U.tieInDepth, mainX: U.mainX },
     cam: { pos: APP.persp.position.toArray(), target: APP.orbit.target.toArray() },
     top: { pos: APP.ortho.position.toArray(), target: APP.top.target.toArray(), zoom: APP.ortho.zoom },
-    walk: { pos: WALK.pos, yaw: WALK.yaw, pitch: WALK.pitch, eye: WALK.eye },
+    walk: { pos: WALK.pos, yaw: WALK.yaw, pitch: WALK.pitch, eye: WALK.eye, view: WALK.view, follow: WALK.follow },
   };
 }
 
@@ -6281,12 +6821,13 @@ function applyState(st) {
     for (const [id, v] of Object.entries(st.checks || {})) if ($(id)) $(id).checked = v;
     if (st.cam) { APP.persp.position.fromArray(st.cam.pos); APP.orbit.target.fromArray(st.cam.target); APP.orbit.update(); }
     if (st.top) { APP.ortho.position.fromArray(st.top.pos); APP.top.target.fromArray(st.top.target); APP.ortho.zoom = st.top.zoom; APP.ortho.updateProjectionMatrix(); APP.top.update(); }
-    if (st.walk) Object.assign(WALK, { pos: st.walk.pos, yaw: st.walk.yaw, pitch: st.walk.pitch, eye: st.walk.eye });
+    if (st.walk) Object.assign(WALK, { pos: st.walk.pos, yaw: st.walk.yaw, pitch: st.walk.pitch, eye: st.walk.eye, view: st.walk.view || 'first', follow: { ...WALK.follow, ...(st.walk.follow || {}) } });
   }
   setCut(st && st.cut != null ? st.cut : 54);
   const mode = st && st.mode ? st.mode : 'orbit';
   if (mode === 'walk') { const keep = { pos: { ...WALK.pos }, yaw: WALK.yaw, pitch: WALK.pitch, eye: WALK.eye }; setMode('walk'); Object.assign(WALK, keep); } else setMode(mode);
   if (WALK.onEye) WALK.onEye(WALK.eye);
+  setWalkView(WALK.view);
   applyToggles();
 }
 
@@ -6328,13 +6869,48 @@ function setCut(h) {
   saveState();
 }
 
+// Layout A (snapshot of Nov 1) or B (owner's sketch). Rebuilds only what differs: the guest shower / tub, drains, vents, cuts,
+// water and the two panels.
+const LAYOUT_NOTES = {
+  A: 'Main up the middle to the guest toilet; each toilet joins it on its own 45° wye. Guest sink drains under the slab into the guest toilet\'s line. 60" × 32" guest shower.',
+  B1: 'Your sketch: toilets back-to-back on one flat 3" 4-way under the middle wall; its vent runs under the slab to the left-wall corner, where the guest sink drains in (wet vent). The master sink drains in its wall to the right-wall corner; a branch under the middle wall picks up the guest tub/shower.',
+  B2: 'Toilets come in level to a vertical 3" double fixture fitting between them, which steps down to the main; its 2" stack rises in the middle wall, where the guest sink drains in (all-vertical wet vent). Right side as in B1. Guest tub/shower.',
+};
+
+function setLayout(layout) {
+  PLUMB.layout = layout;
+  swapGuestWet(APP.layers.fixtures);
+  rebuildPlumbing();
+  buildPlumbPanel();
+  rebuildWater();
+  updateLayoutUI();
+  applyToggles(); // visibility + see-through for the new parts; saves the choice
+}
+
+function updateLayoutUI() {
+  document.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('on', b.dataset.layout === PLUMB.layout));
+  $('hdrLayout').textContent = ` · Layout ${PLUMB.layout}`;
+  document.querySelectorAll('[data-bvar]').forEach((b) => b.classList.toggle('on', +b.dataset.bvar === PLUMB.bVariant));
+  $('bVarRow').style.display = PLUMB.layout === 'B' ? '' : 'none';
+  $('layoutNote').textContent = LAYOUT_NOTES[PLUMB.layout === 'B' ? `B${PLUMB.bVariant}` : 'A'];
+}
+
+// Layout B's toilet fitting: 1 = flat 4-way under the middle wall, 2 = vertical double fixture fitting (step down to the main).
+function setBVariant(v) {
+  PLUMB.bVariant = v;
+  rebuildPlumbing();
+  buildPlumbPanel();
+  updateLayoutUI();
+  applyToggles();
+}
+
 function setMode(mode) {
   const prev = APP.mode;
   APP.mode = mode;
   WALK.enabled = mode === 'walk';
   APP.orbit.enabled = mode === 'orbit';
   APP.top.enabled = mode === 'top';
-  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  updateModeButtons();
   $('walkPanel').style.display = mode === 'walk' ? '' : 'none';
   $('orbitPanel').style.display = mode === 'orbit' ? '' : 'none';
   $('topPanel').style.display = mode === 'top' ? '' : 'none';
@@ -6347,15 +6923,38 @@ function setMode(mode) {
     setCut(APP.cutBeforeWalk);
   }
   applyToggles();
+  if (mode !== 'walk' && AV.group) AV.group.visible = false;
+  $('crosshair').style.display = mode === 'walk' && WALK.view === 'first' ? '' : 'none';
   APP.renderer.domElement.style.cursor = mode === 'walk' ? 'grab' : MEASURE.active ? 'crosshair' : 'default';
+}
+
+function updateModeButtons() {
+  const key = APP.mode === 'walk' && WALK.view === 'follow' ? 'person' : APP.mode;
+  document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === key));
+}
+
+// Walk view: 'first' person, or 'follow' = bird's-eye camera behind a 5'5" body.
+function setWalkView(view) {
+  WALK.view = view;
+  updateModeButtons();
+  document.querySelectorAll('[data-walkview]').forEach((b) => b.classList.toggle('on', b.dataset.walkview === view));
+  $('walkHelpFirst').style.display = view === 'first' ? '' : 'none';
+  $('walkHelpFollow').style.display = view === 'follow' ? '' : 'none';
+  $('eyeBox').style.display = view === 'first' ? '' : 'none';
+  $('crosshair').style.display = APP.mode === 'walk' && view === 'first' ? '' : 'none';
+  if (view === 'follow' && WALK.eye !== WALK.bodyEye) { WALK.eye = WALK.bodyEye; WALK.onEye(WALK.eye); } // body walks on the floor
+  if (APP.mode === 'walk') setCut(view === 'follow' ? 54 : PLAN.ceiling); // from above, half walls show her and the room
 }
 
 function applyToggles() {
   const L = APP.layers;
   L.dims.visible = $('chkDims').checked && APP.mode !== 'walk';
+  L.floors.visible = $('chkFloor').checked || APP.mode === 'walk';  // hide the floor + slab to see every pipe
+  APP.labelRenderer.domElement.style.display = $('chkText').checked ? '' : 'none'; // every text label (pipes, depths, dims, water)
   L.swings.visible = $('chkDoors').checked && !APP.roomsHidden;   // one setting: doors open + swing arcs, or closed
   setDoorsOpen($('chkDoors').checked || APP.mode === 'walk');
   if (typeof applyPlumbingToggles === 'function') applyPlumbingToggles();
+  if (typeof applyWaterToggles === 'function') applyWaterToggles();
   saveState();
 }
 
@@ -6452,7 +7051,12 @@ function setMeasure(on) {
 
 // ---------------- UI ----------------
 function wireUI() {
-  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.mode === 'person') { setMode('walk'); setWalkView('follow'); saveState(); } // walk mode, camera following the 5'5" body
+    else { setMode(b.dataset.mode); if (b.dataset.mode === 'walk') setWalkView('first'); }
+  }));
+  document.querySelectorAll('[data-layout]').forEach((b) => b.addEventListener('click', () => setLayout(b.dataset.layout)));
+  document.querySelectorAll('[data-bvar]').forEach((b) => b.addEventListener('click', () => setBVariant(+b.dataset.bvar)));
   document.querySelectorAll('[data-orbit]').forEach((b) => b.addEventListener('click', () => { setMode('orbit'); orbitPreset(b.dataset.orbit); }));
   const wp = $('walkPresets');
   for (const [key, p] of Object.entries(WALK_PRESETS)) {
@@ -6466,10 +7070,11 @@ function wireUI() {
     $('eyeVal').textContent = eye < -PLUMB.slabT ? `${fmtIn(eye)} — under the slab`
       : eye < 0 ? `${fmtIn(eye)} — inside the slab`
       : eye > PLAN.ceiling ? `${fmtIn(eye)} — above the ceiling`
-      : `${fmtIn(eye)} (≈ ${fmtFtIn(eye + 5)} tall person)`;
+      : `${fmtIn(eye)} (≈ ${fmtFtIn(eye + 4.5)} person)`;
   };
   $('eye').addEventListener('input', (e) => { WALK.eye = +e.target.value; WALK.onEye(WALK.eye); });
-  ['chkDims', 'chkDoors'].forEach((id) => $(id).addEventListener('change', applyToggles));
+  document.querySelectorAll('[data-walkview]').forEach((b) => b.addEventListener('click', () => { setWalkView(b.dataset.walkview); saveState(); }));
+  ['chkDims', 'chkDoors', 'chkFloor', 'chkText', 'chkWater'].forEach((id) => $(id).addEventListener('change', applyToggles));
   $('btnReset').addEventListener('click', () => { localStorage.removeItem(STATE_KEY); location.reload(); });
   $('cut').addEventListener('input', (e) => setCut(+e.target.value));
   document.querySelectorAll('[data-cut]').forEach((b) => b.addEventListener('click', () => setCut(+b.dataset.cut)));
