@@ -17,6 +17,9 @@ Allen Ye's personal site, live at https://allenye.me.
 src/App.tsx       page content (name, tagline, links array)
 src/index.css     all styles; colors are CSS vars on :root with a dark-mode override
 src/main.tsx      React entry, rarely touched
+src/Robot.tsx     lazy-loads the 3D robot behind the text
+src/robot/        the robot: model.ts (geometry), controller.ts (balance and
+                  stepping), index.ts (three.js scene, camera, pointer input)
 index.html        HTML shell: <title>, meta description
 public/           copied as-is into the build (CNAME, images, PDFs)
 public/CNAME      must stay "allenye.me" or the custom domain detaches on deploy
@@ -68,6 +71,10 @@ branch. GitHub Pages rebuilds in about 30–90s.
 
 - Keep the site minimal: small type, lots of whitespace, no animations or
   trackers unless Allen asks.
+- The homepage robot is the one deliberate exception: an original humanoid
+  (no logos or marks) you can poke or drag; it balances with capture-point
+  stepping and walks back to its spot. In dev, `window.__robot` exposes the
+  controller for debugging.
 - Content lives in `src/App.tsx`. Links go in the `links` array.
 - Static files (resume PDF, images) go in `public/` and are referenced by
   absolute path, e.g. `/resume.pdf`.
