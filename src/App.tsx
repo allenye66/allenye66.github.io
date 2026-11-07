@@ -11,7 +11,7 @@ function App() {
       <Robot />
       <main>
         <h1>Allen Ye</h1>
-        <p>Software engineer in Palo Alto.</p>
+        <p>Building Optimus at Tesla.</p>
         <nav>
           {links.map((link) => (
             <a key={link.href} href={link.href}>
