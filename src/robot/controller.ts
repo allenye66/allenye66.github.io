@@ -1,6 +1,7 @@
 import { Euler, Matrix4, Quaternion, Vector2, Vector3 } from 'three'
 import { DIM } from './model'
 import type { Part, Rig } from './model'
+import { Gestures } from './gestures'
 import {
   Spring,
   clamp,
@@ -37,8 +38,31 @@ const HOME_R = 0.4
 const DRAG_K = 26
 const DRAG_D = 2.5
 const EXT_MAX = 9
+const BALL_R = 0.11
+/** Ankle to ball center when lined up to kick. */
+const KICK_GAP = 0.34
+const KICK_T = 0.72
+const KICK_STRIKE = 0.58
 
-type StepKind = 'capture' | 'walk' | 'tidy'
+type StepKind = 'capture' | 'walk' | 'tidy' | 'place' | 'kick'
+
+/** What the controller needs to know about the ball. */
+export interface BallLike {
+  readonly pos: Vector3
+  readonly vel: Vector3
+  readonly active: boolean
+  readonly reachable: boolean
+  readonly held: boolean
+  kick(v: Vector3): void
+}
+
+interface Key {
+  t: number
+  x: number
+  z: number
+  y: number
+  pitch: number
+}
 
 interface Foot {
   side: 1 | -1
@@ -53,6 +77,8 @@ interface Foot {
   dur: number
   height: number
   lift: number
+  /** Lift carried over when a step is retargeted mid-air. */
+  lift0: number
   pitch: number
 }
 
@@ -78,6 +104,7 @@ function makeFoot(side: 1 | -1, x: number, z: number, yaw: number): Foot {
     dur: 0.4,
     height: 0.05,
     lift: 0,
+    lift0: 0,
     pitch: 0,
   }
 }
@@ -94,6 +121,8 @@ const _acc = new Vector2()
 const _s = new Vector2()
 const _hp = new Vector2()
 const _lean = new Vector2()
+const _g = new Vector2()
+const _gl = new Vector2()
 
 const _v3a = new Vector3()
 const _v3b = new Vector3()
@@ -110,12 +139,17 @@ const _qThigh = new Quaternion()
 const _qShin = new Quaternion()
 const _qFoot = new Quaternion()
 const _qTmp = new Quaternion()
+const _qX = new Quaternion()
 const _e = new Euler()
+const X_AXIS = new Vector3(1, 0, 0)
 
 export class Controller {
   readonly home: Vector2
   readonly homeYaw: number
   readonly reduced: boolean
+  /** Where it stands when idle: home, or lined up behind the ball. */
+  readonly goal: Vector2
+  goalYaw: number
 
   c: Vector2
   v = new Vector2()
@@ -145,6 +179,18 @@ export class Controller {
   private tidySwing = 0
   private tidyTime = 0
   private drag: Drag | null = null
+  private nextKind: StepKind = 'tidy'
+
+  // Ball chasing: line up behind it, then kick toward the viewer.
+  ball: BallLike | null = null
+  private chase = false
+  private chaseCooldown = 0
+  private kickDir = new Vector2(0, 1)
+  private kickFoot = 1
+  private kickBall = new Vector2()
+  private kickKeys: Key[] = []
+  private kickStruck = false
+  private placeSteps = 0
 
   private aFilt = new Vector2()
   private vSlow = new Vector2()
@@ -158,6 +204,19 @@ export class Controller {
   private armA = [new Spring(0.1), new Spring(0.1)]
   private armE = [new Spring(-0.22), new Spring(-0.22)]
   private armAim: [number, number] | null = null
+  private armT = [new Spring(), new Spring()]
+  private armWP = [new Spring(), new Spring()]
+  private headRoll = new Spring()
+  private shrug = new Spring()
+  private curl = [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+  ]
+  private palmRoll = [0, 0]
+  readonly gest = new Gestures()
+  /** World positions from the last pose, for gestures and the scene. */
+  readonly palmW = [new Vector3(), new Vector3()]
+  readonly headW = new Vector3(0, 1.6, 0)
 
   private pelvisH = DIM.standPelvis
   private pelvisYaw: number
@@ -167,10 +226,14 @@ export class Controller {
   private shiftTimer = 6
 
   lookTarget = new Vector3(0, 1.6, 5)
+  /** The camera, for glances and kick direction. */
+  viewer = new Vector3(0, 1.2, 7)
 
   constructor(x: number, z: number, yaw: number, reduced: boolean) {
     this.home = new Vector2(x, z)
     this.homeYaw = yaw
+    this.goal = new Vector2(x, z)
+    this.goalYaw = yaw
     this.heading = yaw
     this.pelvisYaw = yaw
     this.reduced = reduced
@@ -236,14 +299,54 @@ export class Controller {
     this.interrupt()
   }
 
+  /** A ball hit it: n points from the body toward the ball. */
+  hitByBall(n: Vector3, speed: number, point: Vector3, part: Part) {
+    const dir = new Vector2(-n.x, -n.z)
+    const horiz = dir.length()
+    if (horiz < 1e-3) fwd(this.pelvisYaw, dir).negate()
+    const mag = clamp(speed * 0.085, 0, 0.5) * clamp(horiz * 1.4, 0.25, 1)
+    this.poke(dir, mag, point, part)
+    if (part === 'head') this.headPitch.v += clamp(n.y, 0, 1) * speed * 2.5
+  }
+
+  get chasing(): boolean {
+    return this.chase
+  }
+
+  get canGesture(): boolean {
+    return !this.drag && !this.chase
+  }
+
+  /** Something to do when nobody is around. */
+  bored(): boolean {
+    if (this.reduced || !this.canGesture || this.mode !== 'stand' || this.gest.active || this.settledTime < 1.5) return false
+    this.gest.bored()
+    return true
+  }
+
   private interrupt() {
     this.mode = 'stand'
-    this.heading = this.homeYaw
+    this.heading = this.goalYaw
     this.tripFace = null
     this.walkLaunched = false
     this.tidyPhase = 'none'
     this.settledTime = 0
-    if (this.swing >= 0 && this.stepKind !== 'capture') this.stepKind = 'capture'
+    this.gest.cancel()
+    if (this.swing >= 0 && this.stepKind !== 'capture') {
+      const sw = this.feet[this.swing]
+      if (this.stepKind === 'kick') {
+        // Abort the kick mid-air and turn it into a catch step from here.
+        sw.from.copy(sw.pos)
+        sw.to.copy(sw.pos)
+        sw.fromYaw = sw.toYaw = sw.yaw
+        sw.lift0 = sw.lift
+        sw.height = 0.04
+        sw.t = 0
+        sw.dur = 0.3
+        this.kickStruck = true
+      }
+      this.stepKind = 'capture'
+    }
   }
 
   // ------------------------------------------------------------- geometry
@@ -372,10 +475,18 @@ export class Controller {
   }
 
   private updateSteps(h: number, outside: number, xiE: Vector2) {
+    this.refreshChase(h)
+
     if (this.swing >= 0) {
       const sw = this.feet[this.swing]
       sw.t = Math.min(1, sw.t + h / sw.dur)
-      if (this.stepKind !== 'tidy' && sw.t < 0.72) {
+      if (this.stepKind === 'kick') {
+        this.kickEval(sw.t, sw)
+        if (!this.kickStruck && sw.t >= KICK_STRIKE) this.strike()
+        if (sw.t >= 1) this.touchdown()
+        return
+      }
+      if ((this.stepKind === 'capture' || this.stepKind === 'walk') && sw.t < 0.72) {
         const tgt = this.planTarget(this.swing, sw.dur * (1 - sw.t), this.stepKind)
         sw.to.lerp(tgt, 1 - Math.exp(-h * 16))
       }
@@ -383,34 +494,36 @@ export class Controller {
       sw.pos.copy(sw.from).lerp(sw.to, e)
       sw.yaw = lerpAngle(sw.fromYaw, sw.toYaw, e)
       const stride = clamp(sw.from.distanceTo(sw.to) / 0.35, 0.25, 1)
-      sw.lift = sw.height * Math.pow(Math.sin(Math.PI * sw.t), 0.85)
+      sw.lift = sw.height * Math.pow(Math.sin(Math.PI * sw.t), 0.85) + sw.lift0 * (1 - smoothstep(sw.t * 1.6))
       sw.pitch = 0.3 * stride * Math.sin(2 * Math.PI * sw.t)
       if (sw.t >= 1) this.touchdown()
       return
     }
 
     this.dsTime += h
-    const settled = outside === 0 && this.v.length() < 0.07 && !this.drag
+    const settled = outside === 0 && this.v.length() < (this.chase ? 0.12 : 0.07) && !this.drag
     this.settledTime = settled ? this.settledTime + h : 0
 
     if (this.mode === 'walk') {
       const mid = this.mid(_a)
-      const toHome = _b.copy(this.home).sub(mid)
-      const dist = toHome.length()
-      // Hand over to the balance controller near home; its last capture step
-      // absorbs the remaining walking speed.
-      const off = Math.abs(wrapAngle(Math.atan2(toHome.x, toHome.y) - this.heading))
+      const toGoal = _b.copy(this.goal).sub(mid)
+      const dist = toGoal.length()
+      // Hand over to the balance controller near the goal; its last capture
+      // step absorbs the remaining walking speed.
+      const off = Math.abs(wrapAngle(Math.atan2(toGoal.x, toGoal.y) - this.heading))
       const astray = this.walkFace && off > 1.2 && off < Math.PI - 0.6
       // Watchdog: hand back to balance if the walk stops making progress.
       if (dist < this.walkBest - 0.05) {
         this.walkBest = dist
         this.walkStall = 0
       } else this.walkStall += h
-      if (dist < 0.3 || astray || this.walkSteps > 30 || this.v.length() > 1.1 || this.walkStall > 2.5) {
+      // Chasing hands over earlier: momentum carries it the rest of the way.
+      const arrive = this.chase ? 0.5 : 0.3
+      if (dist < arrive || astray || this.walkSteps > 30 || this.v.length() > 1.1 || this.walkStall > 2.5) {
         this.mode = 'stand'
       } else {
-        toHome.divideScalar(dist)
-        this.walkDir.lerp(toHome, 1 - Math.exp(-h * 4)).normalize()
+        toGoal.divideScalar(dist)
+        this.walkDir.lerp(toGoal, 1 - Math.exp(-h * 4)).normalize()
         if (this.walkFace) this.heading = Math.atan2(this.walkDir.x, this.walkDir.y)
         if (this.walkLaunched) {
           if (this.dsTime > 0.03) this.startStep(1 - this.lastSwing, 'walk', 0)
@@ -442,32 +555,48 @@ export class Controller {
 
     if (this.mode !== 'stand') return
     if (this.tidyPhase === 'shift') {
+      // Weight goes over the stance foot before the other one lifts. Placing
+      // steps toward the ball settle for a looser shift to keep things moving.
       this.tidyTime += h
-      const center = this.footCenter(this.feet[1 - this.tidySwing], _a)
-      if ((xiE.distanceTo(center) < 0.03 && this.c.distanceTo(center) < 0.05) || this.tidyTime > 0.9) {
+      const kind = this.nextKind
+      const loose = kind === 'place' || (kind === 'tidy' && this.chase)
+      const st = this.feet[1 - this.tidySwing]
+      const center = this.footCenter(st, _a)
+      // The capture point must be on the stance foot before the other lifts,
+      // or it keeps drifting through single support and needs a catch step.
+      const onFoot = clampToPoly(xiE, this.footPoly(st), _out) === 0
+      const over = loose
+        ? onFoot && this.c.distanceTo(center) < 0.07
+        : xiE.distanceTo(center) < 0.03 && this.c.distanceTo(center) < 0.05
+      if (over || this.tidyTime > (loose ? 1.2 : 0.9)) {
         this.tidyPhase = 'none'
-        this.startStep(this.tidySwing, 'tidy', 0)
+        if (kind === 'kick' && (!this.chase || this.placeError() > 0.11)) return
+        this.startStep(this.tidySwing, kind, 0)
       }
-    } else if (this.settledTime > 0.45 && !this.drag) {
-      // Sideways walking is unstable for a biped. Far from home it turns in
-      // place to face home and walks forward; a short hop straight forward or
-      // back is walked while still facing the viewer. Near home it turns back.
+    } else if (this.settledTime > (this.chase ? 0.15 : 0.45) && !this.drag) {
+      if (!this.chase && this.ballReady()) this.startChase()
+      if (this.chase && !this.ballSlow()) return
+      // Sideways walking is unstable for a biped. Far from the goal it turns
+      // in place to face it and walks forward; a short hop straight forward
+      // or back is walked while still facing the viewer. Near the goal it
+      // turns to the goal's heading.
       const mid = this.mid(_a)
-      const d = _b.copy(this.home).sub(mid)
+      const d = _b.copy(this.goal).sub(mid)
       const dist = d.length()
       d.divideScalar(dist || 1)
-      const far = dist > (this.tripFace === null ? HOME_R : 0.25)
+      const near = this.chase ? 0.6 : HOME_R
+      const far = dist > (this.tripFace === null ? near : this.chase ? 0.52 : 0.25)
       if (!far) this.tripFace = null
       else if (this.tripFace === null) {
-        this.tripFace = dist > 0.9 || Math.abs(d.dot(fwd(this.homeYaw, _f))) < 0.75
+        this.tripFace = dist > 0.9 || Math.abs(d.dot(fwd(this.goalYaw, _f))) < 0.75
       }
       const face = far && this.tripFace === true
-      this.heading = face ? Math.atan2(d.x, d.y) : this.homeYaw
+      this.heading = face ? Math.atan2(d.x, d.y) : this.goalYaw
       const yawErr = Math.max(
         Math.abs(wrapAngle(this.feet[0].yaw - this.heading)),
         Math.abs(wrapAngle(this.feet[1].yaw - this.heading)),
       )
-      if (far && yawErr < 0.3 && this.settledTime > 0.7) {
+      if (far && yawErr < 0.3 && this.settledTime > (this.chase ? 0.3 : 0.7)) {
         this.mode = 'walk'
         this.walkLaunched = false
         this.walkSteps = 0
@@ -477,15 +606,191 @@ export class Controller {
         this.launchTime = 0
         this.walkBest = dist
         this.walkStall = 0
+      } else if (this.chase && !far) {
+        this.placeOrKick()
       } else {
         const pick = this.tidyPick()
-        if (pick >= 0) {
-          this.tidyPhase = 'shift'
-          this.tidySwing = pick
-          this.tidyTime = 0
-        }
+        if (pick >= 0) this.shiftFor(pick, 'tidy')
       }
     }
+  }
+
+  private shiftFor(i: number, kind: StepKind) {
+    this.tidyPhase = 'shift'
+    this.tidySwing = i
+    this.tidyTime = 0
+    this.nextKind = kind
+  }
+
+  // ------------------------------------------------------------------ ball
+
+  /** Grounded and nearly still, so it can be walked up to. */
+  private ballSlow(): boolean {
+    const b = this.ball
+    if (!b || !b.active || b.held) return false
+    return b.pos.y < BALL_R + 0.05 && Math.hypot(b.vel.x, b.vel.z) < 0.35 && Math.abs(b.vel.y) < 0.5
+  }
+
+  private ballReady(): boolean {
+    return this.chaseCooldown <= 0 && !!this.ball?.reachable && this.ballSlow()
+  }
+
+  private startChase() {
+    this.chase = true
+    this.gest.cancel()
+    this.tripFace = null
+    this.planChase()
+    this.updateGoal()
+  }
+
+  /** Kick along the way it walks up, bent toward the viewer, so it needn't turn at the ball. */
+  private planChase() {
+    const b = this.ball!
+    const ball = new Vector2(b.pos.x, b.pos.z)
+    const mid = this.mid(new Vector2())
+    const toBall = ball.clone().sub(mid)
+    if (toBall.lengthSq() < 1e-6) fwd(this.pelvisYaw, toBall)
+    toBall.normalize()
+    const toCam = new Vector2(this.viewer.x - ball.x, this.viewer.z - ball.y).normalize()
+    const dir = toBall.add(toCam.multiplyScalar(0.4))
+    if (dir.lengthSq() < 1e-6) dir.copy(toCam)
+    const yaw = Math.atan2(dir.x, dir.y) + (Math.random() * 2 - 1) * 0.2
+    this.goalYaw = yaw
+    fwd(yaw, this.kickDir)
+    // Kick with the foot that keeps the stance foot on the near side.
+    const lat = mid.sub(ball).dot(left(yaw, _gl))
+    this.kickFoot = lat > 0 ? 1 : 0
+    this.kickBall.copy(ball)
+    this.placeSteps = 0
+  }
+
+  /** Stance that puts the ball in front of the kicking foot. */
+  private updateGoal() {
+    const L = left(this.goalYaw, _gl)
+    const sideS = this.feet[1 - this.kickFoot].side
+    this.goal
+      .copy(this.kickBall)
+      .addScaledVector(this.kickDir, -KICK_GAP)
+      .addScaledVector(L, (sideS * STANCE_W) / 2)
+  }
+
+  private refreshChase(h: number) {
+    this.chaseCooldown -= h
+    if (!this.chase) return
+    const b = this.ball
+    if (!b || !b.active || !b.reachable || b.held) {
+      this.endChase(0.6)
+      return
+    }
+    if (this.swing >= 0 && this.stepKind === 'kick') return
+    if (!this.ballSlow()) return
+    if (Math.hypot(b.pos.x - this.kickBall.x, b.pos.z - this.kickBall.y) > 0.6) this.planChase()
+    else this.kickBall.set(b.pos.x, b.pos.z)
+    this.updateGoal()
+  }
+
+  private endChase(cooldown: number) {
+    this.chase = false
+    this.chaseCooldown = cooldown
+    this.goal.copy(this.home)
+    this.goalYaw = this.homeYaw
+    this.tripFace = null
+    if (this.mode === 'stand') this.heading = this.homeYaw
+  }
+
+  private footGoal(i: number, out: Vector2): Vector2 {
+    const L = left(this.goalYaw, _gl)
+    return out.copy(this.goal).addScaledVector(L, (this.feet[i].side * STANCE_W) / 2)
+  }
+
+  private placeError(): number {
+    let err = 0
+    for (const i of [0, 1]) {
+      const f = this.feet[i]
+      const e = f.pos.distanceTo(this.footGoal(i, _g)) + 0.3 * Math.abs(wrapAngle(f.yaw - this.goalYaw))
+      err = Math.max(err, e)
+    }
+    return err
+  }
+
+  private placeOrKick() {
+    const e = [0, 1].map((i) => {
+      const f = this.feet[i]
+      return f.pos.distanceTo(this.footGoal(i, _g)) + 0.3 * Math.abs(wrapAngle(f.yaw - this.goalYaw))
+    })
+    if (Math.max(e[0], e[1]) < 0.085) {
+      this.shiftFor(this.kickFoot, 'kick')
+      return
+    }
+    if (++this.placeSteps > 10) {
+      this.endChase(3)
+      return
+    }
+    this.shiftFor(e[0] > e[1] ? 0 : 1, 'place')
+  }
+
+  /** Wind up, swing through the ball, follow through, land beside the stance foot. */
+  private planKick(sw: Foot) {
+    const F = this.kickDir
+    const st = this.feet[1 - this.kickFoot]
+    const L = left(st.yaw, new Vector2())
+    const B = this.kickBall
+    const a0 = sw.pos.clone()
+    const back = a0.clone().addScaledVector(F, -0.16)
+    const hit = B.clone().addScaledVector(F, -(BALL_R + DIM.toe - 0.03))
+    const land = st.pos.clone().addScaledVector(L, sw.side * STANCE_W).addScaledVector(F, 0.05)
+    this.kickKeys = [
+      { t: 0, x: a0.x, z: a0.y, y: 0, pitch: 0 },
+      { t: 0.36, x: back.x, z: back.y, y: 0.1, pitch: 0.5 },
+      { t: KICK_STRIKE, x: hit.x, z: hit.y, y: 0.04, pitch: 0.12 },
+      { t: 0.78, x: B.x, z: B.y, y: 0.17, pitch: -0.3 },
+      { t: 1, x: land.x, z: land.y, y: 0, pitch: 0 },
+    ]
+    sw.to.copy(land)
+    sw.toYaw = sw.yaw
+    this.kickStruck = false
+  }
+
+  /** Cubic Hermite through the kick keys with Catmull-Rom tangents. */
+  private kickEval(t: number, sw: Foot) {
+    const K = this.kickKeys
+    let i = 0
+    while (i < K.length - 2 && t > K[i + 1].t) i++
+    const k0 = K[i]
+    const k1 = K[i + 1]
+    const dt = k1.t - k0.t
+    const u = clamp((t - k0.t) / dt, 0, 1)
+    const u2 = u * u
+    const u3 = u2 * u
+    const h00 = 2 * u3 - 3 * u2 + 1
+    const h10 = u3 - 2 * u2 + u
+    const h01 = -2 * u3 + 3 * u2
+    const h11 = u3 - u2
+    const tan = (j: number, k: keyof Key) =>
+      j === 0 || j === K.length - 1 ? 0 : (K[j + 1][k] - K[j - 1][k]) / (K[j + 1].t - K[j - 1].t)
+    const val = (k: keyof Key) => h00 * k0[k] + h10 * dt * tan(i, k) + h01 * k1[k] + h11 * dt * tan(i + 1, k)
+    sw.pos.set(val('x'), val('z'))
+    sw.lift = Math.max(0, val('y'))
+    sw.pitch = val('pitch')
+  }
+
+  private strike() {
+    this.kickStruck = true
+    const b = this.ball
+    if (b && b.active && !b.held && b.pos.y < 0.35) {
+      if (Math.hypot(b.pos.x - this.kickBall.x, b.pos.z - this.kickBall.y) < 0.22) {
+        const vh = 4.4 + Math.random() * 1.6
+        const vv = 1.6 + Math.random() * 1.6
+        b.kick(new Vector3(this.kickDir.x * vh, vv, this.kickDir.y * vh))
+      }
+    }
+    this.endChase(1.5)
+  }
+
+  /** The kicking leg passes through the ball until the strike. */
+  get ghostLeg(): number {
+    if (this.swing >= 0 && this.stepKind === 'kick' && this.feet[this.swing].t < 0.85) return this.swing
+    return -1
   }
 
   private chooseSwing(d: Vector2): number {
@@ -502,7 +807,7 @@ export class Controller {
 
   private planYaw(i: number): number {
     const st = this.feet[1 - i]
-    const max = this.mode === 'stand' ? 0.6 : 0.5
+    const max = this.mode === 'stand' ? (this.chase ? 0.8 : 0.6) : 0.5
     return st.yaw + clamp(wrapAngle(this.heading - st.yaw), -max, max)
   }
 
@@ -518,6 +823,9 @@ export class Controller {
     if (kind === 'tidy') {
       return target.copy(st.pos).addScaledVector(L, sw.side * STANCE_W)
     }
+    if (kind === 'place') {
+      return this.constrainStep(this.footGoal(i, target), st, sw, F, L, 0.42)
+    }
 
     const xi = _v3a.set(this.v.x / W + this.c.x, 0, this.v.y / W + this.c.y)
     const xiE = new Vector2(xi.x + this.ext.x / W2, xi.z + this.ext.y / W2)
@@ -531,22 +839,26 @@ export class Controller {
       // Shorter strides when walking sideways or backward.
       const along = this.walkDir.dot(fwd(yawRef, _f))
       const maxL = along > 0.7 ? 0.24 : along > -0.3 ? 0.15 : 0.16
-      // Strides shrink to zero near home, so the last steps brake to a stop.
-      const dist = this.home.distanceTo(mid)
+      // Strides shrink to zero near the goal, so the last steps brake to a stop.
+      const dist = this.goal.distanceTo(mid)
       const L0 = dist < 0.2 ? 0 : clamp(dist * 0.5, 0.08, maxL)
       target.addScaledVector(this.walkDir, -L0 / (Math.exp(W * WALK_T) - 1))
     }
     target.addScaledVector(L, sw.side * (kind === 'walk' ? 0.035 : W_OUT))
+    return this.constrainStep(target, st, sw, F, L, MAX_STEP)
+  }
 
+  /** Keep a foot target outside the stance foot and within one stride of it. */
+  private constrainStep(target: Vector2, st: Foot, sw: Foot, F: Vector2, L: Vector2, max: number): Vector2 {
     const rx = target.x - st.pos.x
     const rz = target.y - st.pos.y
     let lat = (rx * L.x + rz * L.y) * sw.side
     let fw = rx * F.x + rz * F.y
     lat = Math.max(lat, MIN_LAT)
     const len = Math.hypot(lat, fw)
-    if (len > MAX_STEP) {
-      lat = Math.max(lat * (MAX_STEP / len), MIN_LAT)
-      fw = Math.sign(fw) * Math.sqrt(Math.max(0, MAX_STEP * MAX_STEP - lat * lat))
+    if (len > max) {
+      lat = Math.max(lat * (max / len), MIN_LAT)
+      fw = Math.sign(fw) * Math.sqrt(Math.max(0, max * max - lat * lat))
     }
     return target
       .copy(st.pos)
@@ -581,11 +893,25 @@ export class Controller {
     sw.from.copy(sw.pos)
     sw.fromYaw = sw.yaw
     sw.t = 0
-    sw.dur = kind === 'capture' ? this.captureDur(urgency)  : kind === 'walk' ? WALK_T : 0.42
-    sw.toYaw = this.planYaw(i)
-    sw.to.copy(this.planTarget(i, sw.dur, kind))
+    sw.lift0 = 0
+    sw.dur =
+      kind === 'capture'
+        ? this.captureDur(urgency)
+        : kind === 'walk'
+          ? WALK_T
+          : kind === 'kick'
+            ? KICK_T
+            : kind === 'place' || this.chase
+              ? 0.36
+              : 0.42
+    if (kind === 'kick') this.planKick(sw)
+    else {
+      sw.toYaw = this.planYaw(i)
+      sw.to.copy(this.planTarget(i, sw.dur, kind))
+    }
     const dist = sw.to.distanceTo(sw.from)
-    sw.height = kind === 'tidy' ? 0.035 + dist * 0.05 : clamp(0.045 + dist * 0.12, 0.05, 0.11)
+    sw.height =
+      kind === 'tidy' || kind === 'place' ? 0.035 + dist * 0.06 : clamp(0.045 + dist * 0.12, 0.05, 0.11)
     this.swing = i
     this.lastSwing = i
     this.stepKind = kind
@@ -638,11 +964,22 @@ export class Controller {
     const hf = this.drag ? clamp((this.drag.height - COM_H) / 0.45, -1, 1) : 0
     _lean.copy(this.aFilt).multiplyScalar(-0.02).addScaledVector(this.ext, 0.028 * Math.max(hf, 0.3))
     if (this.mode === 'walk' && this.walkLaunched) _lean.addScaledVector(this.walkDir, 0.05)
+    let kickArc = 0
+    if (this.swing >= 0 && this.stepKind === 'kick') {
+      const t = this.feet[this.swing].t
+      kickArc = Math.sin(Math.PI * t)
+      // Lean back through the strike.
+      const k = (t - KICK_STRIKE) / 0.15
+      _lean.addScaledVector(this.kickDir, -0.07 * Math.exp(-k * k))
+    }
     this.leanP.step(clamp(_lean.dot(F), -0.35, 0.35), 70, 11, h)
     this.leanR.step(clamp(-_lean.dot(L), -0.3, 0.3), 70, 11, h)
     this.twist.step(0, 45, 8, h)
 
-    // Arms: counter-swing to the opposite leg, flare on sudden velocity changes.
+    // Arms: counter-swing to the opposite leg, flare on sudden velocity
+    // changes, out for balance during a kick. Gestures blend over the top.
+    const G = this.gest
+    G.update(h)
     const hp = _hp.copy(this.v).sub(this.vSlow)
     const hpF = hp.dot(F)
     const hpL = hp.dot(L)
@@ -652,19 +989,55 @@ export class Controller {
       const opp = this.feet[1 - i]
       const oppFwd = (opp.pos.x - this.c.x) * F.x + (opp.pos.y - this.c.y) * F.y + FOOT_CENTER
       let p = 0.04 - 1.3 * oppFwd + 1.2 * hpF
-      let a = 0.1 + 1.1 * hpMag - side * 0.9 * hpL
+      let a = 0.1 + 1.1 * hpMag - side * 0.9 * hpL + 0.35 * kickArc
       let el = -0.22 - 0.8 * hpMag
-      if (this.drag && this.drag.arm === i && this.armAim) {
-        ;[p, a] = this.armAim
+      let tw = 0
+      let wp = 0
+      const grabbed = this.drag && this.drag.arm === i && this.armAim
+      if (grabbed) {
+        ;[p, a] = this.armAim!
         el = -0.08
       }
-      this.armP[i].step(clamp(p, -2.4, 0.9), 90, 10, h)
-      this.armA[i].step(clamp(a, 0.04, 1.6), 90, 10, h)
-      this.armE[i].step(clamp(el, -1.6, -0.03), 110, 12, h)
+      const w = grabbed ? 0 : G.armW[i]
+      if (w > 1e-3) {
+        const P = G.arm[i]
+        p += (P.p - p) * w
+        a += (P.a - a) * w
+        el += (P.el - el) * w
+        tw = P.tw * w
+        wp = P.wp * w
+      }
+      const k = 90 + 160 * w
+      const d = 10 + 10 * w
+      this.armP[i].step(clamp(p, -2.6, 0.9), k, d, h)
+      this.armA[i].step(clamp(a, 0.04 - 0.5 * w, 1.9), k, d, h)
+      this.armE[i].step(clamp(el, -2.3, -0.03), k + 20, d + 2, h)
+      this.armT[i].step(tw, k, d, h)
+      this.armWP[i].step(wp, k, d, h)
+      const cu = this.curl[i]
+      for (let f = 0; f < 4; f++) cu[f] = damp(cu[f], G.arm[i].curl[f] * w, 16, h)
     }
 
     // Head follows the look target, relative to the body.
-    const t = this.lookTarget
+    let [hy, hpch] = this.headAngles(this.lookTarget, F, L)
+    if (G.lookW > 1e-3) {
+      let gy = 0
+      let gp = 0
+      if (G.look === 'viewer') [gy, gp] = this.headAngles(this.viewer, F, L)
+      else if (G.look === 'hand') [gy, gp] = this.headAngles(this.palmW[G.lookArm], F, L)
+      gy += G.lookYaw
+      gp += G.lookPitch
+      hy += (gy - hy) * G.lookW
+      hpch += (gp - hpch) * G.lookW
+    }
+    this.headYaw.step(clamp(hy, -1.1, 1.1) - this.twist.x, 55, 12, h)
+    this.headPitch.step(clamp(hpch, -0.45, 0.8), 55, 12, h)
+    this.headRoll.step(G.roll, 50, 11, h)
+    this.shrug.step(G.shrug, 160, 16, h)
+  }
+
+  /** Head yaw and pitch, relative to the pelvis, to look at a point. */
+  private headAngles(t: Vector3, F: Vector2, L: Vector2): [number, number] {
     const rx = t.x - this.c.x
     const ry = t.y - 1.58
     const rz = t.z - this.c.y
@@ -672,9 +1045,7 @@ export class Controller {
     const lz = rx * F.x + rz * F.y
     let hy = Math.atan2(lx, lz)
     if (Math.abs(hy) > 1.9) hy = 0
-    const hpch = Math.atan2(-ry, Math.hypot(lx, lz))
-    this.headYaw.step(clamp(hy, -1.1, 1.1) - this.twist.x, 55, 12, h)
-    this.headPitch.step(clamp(hpch, -0.45, 0.5), 55, 12, h)
+    return [hy, Math.atan2(-ry, Math.hypot(lx, lz))]
   }
 
   // ----------------------------------------------------------------- pose
@@ -709,17 +1080,53 @@ export class Controller {
     root.quaternion.setFromEuler(_e)
 
     rig.spine.rotation.set(this.leanP.x * 0.75 + (this.reduced ? 0 : Math.sin(this.time * 1.5) * 0.006), this.twist.x, this.leanR.x * 0.75, 'YXZ')
-    rig.neck.rotation.set(this.headPitch.x * 0.35, this.headYaw.x * 0.4, 0)
-    rig.head.rotation.set(this.headPitch.x * 0.65, this.headYaw.x * 0.6, 0)
+    rig.neck.rotation.set(this.headPitch.x * 0.35, this.headYaw.x * 0.4, this.headRoll.x * 0.4)
+    rig.head.rotation.set(this.headPitch.x * 0.65, this.headYaw.x * 0.6, this.headRoll.x * 0.6)
 
     for (const i of [0, 1]) {
       const side = this.feet[i].side
-      rig.shoulder[i].rotation.set(this.armP[i].x, 0, side * this.armA[i].x)
+      const sh = rig.shoulder[i]
+      sh.position.y = DIM.shoulderY + this.shrug.x * 0.03
+      sh.rotation.set(this.armP[i].x, this.armT[i].x, side * this.armA[i].x)
       rig.elbow[i].rotation.set(this.armE[i].x, 0, 0)
-      rig.wrist[i].rotation.set(-0.12, 0, 0)
+      rig.wrist[i].rotation.set(-0.12 + this.armWP[i].x, 0, 0)
+      const cu = this.curl[i]
+      const fingers = rig.fingers[i]
+      for (let f = 0; f < 4; f++) {
+        fingers[f][0].rotation.z = -side * (0.22 + 1.25 * cu[f])
+        fingers[f][1].rotation.z = -side * (0.42 + 1.35 * cu[f])
+      }
+      const avg = (cu[0] + cu[1] + cu[2] + cu[3]) / 4
+      rig.thumb[i][1].rotation.z = -side * (0.3 + 0.9 * Math.max(avg, -0.2))
     }
 
     root.updateMatrixWorld(true)
+    rig.head.localToWorld(this.headW.set(0, 0.1, 0.06))
+
+    // Roll each wrist so the palm faces where the gesture wants it.
+    for (const i of [0, 1]) {
+      const P = this.gest.arm[i]
+      const w = this.gest.armW[i]
+      const wr = rig.wrist[i]
+      let want = 0
+      if (w > 1e-3 && P.palm) {
+        wr.getWorldPosition(_v3a)
+        rig.elbow[i].getWorldQuaternion(_qTmp).multiply(_qX.setFromAxisAngle(X_AXIS, wr.rotation.x))
+        const D = _v3b.copy(this.headW).sub(_v3a)
+        if (P.palm === 'back') D.negate()
+        D.applyQuaternion(_qTmp.invert())
+        const s = this.feet[i].side
+        want = Math.atan2(s * D.z, -s * D.x)
+      }
+      this.palmRoll[i] = lerpAngle(this.palmRoll[i], want, 1 - Math.exp(-dt * 12))
+      const roll = this.palmRoll[i] * Math.min(w, 1)
+      if (roll !== wr.rotation.y) {
+        wr.rotation.y = roll
+        wr.updateMatrixWorld(true)
+      }
+      wr.localToWorld(this.palmW[i].set(0, -0.065, 0))
+    }
+
     _qRoot.copy(root.quaternion)
     _qRootInv.copy(_qRoot).invert()
 
@@ -752,6 +1159,7 @@ export class Controller {
         this.armAim = [p, side * r]
       }
     }
+    root.updateMatrixWorld(true)
   }
 
   private solveLeg(H: Vector3, A: Vector3, pole: Vector3) {

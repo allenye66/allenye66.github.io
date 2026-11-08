@@ -53,6 +53,9 @@ export interface Rig {
   hip: [Group, Group]
   knee: [Group, Group]
   ankle: [Group, Group]
+  /** Per hand: four fingers (index to pinky) and the thumb, as [base, tip] joints. */
+  fingers: [Group, Group][][]
+  thumb: [Group, Group][]
   meshes: Mesh[]
   glow: MeshBasicMaterial
   dispose: () => void
@@ -221,7 +224,10 @@ export function buildRobot(): Rig {
   const shoulder: Group[] = []
   const elbow: Group[] = []
   const wrist: Group[] = []
+  const fingers: [Group, Group][][] = []
+  const thumbs: [Group, Group][] = []
   for (const s of [1, -1]) {
+    const hand: [Group, Group][] = []
     const sh = joint(spine, s * DIM.shoulderX, DIM.shoulderY, 0)
     sh.rotation.order = 'ZXY'
     add(sh, new SphereGeometry(0.05, 28, 18), dark, 'arm')
@@ -271,6 +277,7 @@ export function buildRobot(): Rig {
       const tip = joint(base, 0, -0.033 * len, 0)
       tip.rotation.z = -s * 0.42
       add(tip, new CapsuleGeometry(0.008, 0.02 * len, 4, 10), mech, 'arm', 0, -0.014, 0)
+      hand.push([base, tip])
     }
     const thumb = joint(wr, -s * 0.01, -0.032, 0.038)
     thumb.rotation.set(-0.55, 0, -s * 0.35)
@@ -278,6 +285,8 @@ export function buildRobot(): Rig {
     const thumbTip = joint(thumb, 0, -0.036, 0)
     thumbTip.rotation.z = -s * 0.3
     add(thumbTip, new CapsuleGeometry(0.0088, 0.016, 4, 10), mech, 'arm', 0, -0.012, 0)
+    fingers.push(hand)
+    thumbs.push([thumb, thumbTip])
     shoulder.push(sh)
     elbow.push(el)
     wrist.push(wr)
@@ -350,6 +359,8 @@ export function buildRobot(): Rig {
     hip: hip as [Group, Group],
     knee: knee as [Group, Group],
     ankle: ankle as [Group, Group],
+    fingers,
+    thumb: thumbs,
     meshes,
     glow,
     dispose() {
