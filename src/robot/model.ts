@@ -6,7 +6,6 @@ import {
   Group,
   LatheGeometry,
   Mesh,
-  MeshBasicMaterial,
   MeshPhysicalMaterial,
   SphereGeometry,
   TubeGeometry,
@@ -17,9 +16,11 @@ import type { Material } from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 
 // An original humanoid in the public design language of a modern general
-// purpose robot: black glossy head, black yoke and waist, satin white shells
-// over the chest and limbs, black joints, hands and feet. No marks or logos.
-// Every bone extends along its joint's local -y; +z is forward.
+// purpose robot: a glossy black head on a black hood that flares into the
+// shoulders and frames a flat white chest plate, a black belly over a narrow
+// waist, satin white shells on the fronts of the limbs, exposed actuators at
+// the hips, forearms and calves, black hands and graphite feet. No marks or
+// logos. Every bone extends along its joint's local -y; +z is forward.
 export const DIM = {
   hipX: 0.092,
   hipY: -0.05,
@@ -32,7 +33,7 @@ export const DIM = {
   upperArm: 0.285,
   forearm: 0.255,
   neckY: 0.415,
-  headY: 0.022,
+  headY: 0.05,
   standPelvis: 0.94,
   // Foot support rectangle relative to the ankle.
   heel: -0.075,
@@ -57,23 +58,31 @@ export interface Rig {
   fingers: [Group, Group][][]
   thumb: [Group, Group][]
   meshes: Mesh[]
-  glow: MeshBasicMaterial
   dispose: () => void
 }
 
-/** Smooth closed shell of revolution. Profile is [radius, y], bottom to top. */
-function lathe(profile: [number, number][], sx = 1, sz = 1, samples = 40, segs = 48): BufferGeometry {
+/**
+ * Smooth shell of revolution. Profile is [radius, y], bottom to top. A sweep
+ * under 1 leaves the back open, centered on +z: a shell over the front only.
+ */
+function lathe(profile: [number, number][], sx = 1, sz = 1, sweep = 1): BufferGeometry {
   const curve = new CatmullRomCurve3(
     profile.map(([r, y]) => new Vector3(r, y, 0)),
     false,
     'centripetal',
   )
-  const pts = curve.getPoints(samples).map((p) => new Vector2(Math.max(p.x, 0), p.y))
+  const pts = curve.getPoints(40).map((p) => new Vector2(Math.max(p.x, 0), p.y))
   pts[0].x = 0
   pts[pts.length - 1].x = 0
-  const g = new LatheGeometry(pts, segs)
+  const phi = Math.PI * 2 * sweep
+  const g = new LatheGeometry(pts, Math.max(12, Math.round(48 * sweep)), -phi / 2, phi)
   g.scale(sx, 1, sz)
   return g
+}
+
+/** The same profile shrunk toward its axis, for the dark core under an open shell. */
+function inset(profile: [number, number][], k: number): [number, number][] {
+  return profile.map(([r, y]) => [r * k, y])
 }
 
 /** Rounded box whose width and depth scale linearly from bottom to top. */
@@ -101,6 +110,20 @@ function taperedBox(
   return g
 }
 
+/** Rounded shoe: tall at the ankle, sloping down to a narrower, rounded toe. */
+function shoe(w: number, h: number, d: number): BufferGeometry {
+  const g = new RoundedBoxGeometry(w, h, d, 6, 0.028)
+  const pos = g.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const t = (pos.getZ(i) + d / 2) / d
+    const y = pos.getY(i)
+    if (y > -h * 0.3) pos.setY(i, -h * 0.3 + (y + h * 0.3) * (1 - 0.5 * Math.pow(t, 1.6)))
+    pos.setX(i, pos.getX(i) * (1 - 0.18 * t * t))
+  }
+  g.computeVertexNormals()
+  return g
+}
+
 const HEAD_PROFILE: [number, number][] = [
   [0, -0.105],
   [0.042, -0.1],
@@ -112,7 +135,7 @@ const HEAD_PROFILE: [number, number][] = [
   [0.04, 0.122],
   [0, 0.128],
 ]
-const HEAD_SX = 0.94
+const HEAD_SX = 0.9
 const HEAD_SZ = 1.12
 
 /** Thin light line framing the face: where a tilted plane meets the head. */
@@ -142,18 +165,18 @@ function faceSeam(): BufferGeometry {
 
 export function buildRobot(): Rig {
   const shell = new MeshPhysicalMaterial({
-    color: 0xd6d7d6,
-    roughness: 0.3,
-    metalness: 0.28,
-    clearcoat: 0.6,
-    clearcoatRoughness: 0.22,
+    color: 0xe7e7e4,
+    roughness: 0.36,
+    metalness: 0.06,
+    clearcoat: 0.45,
+    clearcoatRoughness: 0.3,
   })
   const dark = new MeshPhysicalMaterial({
-    color: 0x111113,
-    roughness: 0.48,
-    metalness: 0.3,
-    clearcoat: 0.3,
-    clearcoatRoughness: 0.4,
+    color: 0x121214,
+    roughness: 0.52,
+    metalness: 0.25,
+    clearcoat: 0.12,
+    clearcoatRoughness: 0.5,
   })
   const mech = new MeshPhysicalMaterial({
     color: 0x2b2c30,
@@ -167,7 +190,13 @@ export function buildRobot(): Rig {
     clearcoat: 1,
     clearcoatRoughness: 0.03,
   })
-  const glow = new MeshBasicMaterial({ color: 0x9adfff })
+  const graphite = new MeshPhysicalMaterial({
+    color: 0x3a3b3f,
+    roughness: 0.55,
+    metalness: 0.2,
+    clearcoat: 0.2,
+  })
+  const seamMat = new MeshPhysicalMaterial({ color: 0x4a4b50, roughness: 0.25, metalness: 0.9 })
 
   const meshes: Mesh[] = []
   const geometries: BufferGeometry[] = []
@@ -198,26 +227,61 @@ export function buildRobot(): Rig {
     return m
   }
 
-  // Pelvis: black, narrowing toward the crotch, with hip drums.
+  // Pelvis: exposed machinery, a dark frame with a cross drum.
   const root = new Group()
-  add(root, taperedBox(0.25, 0.13, 0.17, 0.045, [0.62, 0.82], [1, 1]), dark, 'pelvis', 0, -0.005, 0)
-  add(root, taperedBox(0.17, 0.05, 0.125, 0.02, [1, 1], [1.05, 1.05]), mech, 'pelvis', 0, 0.065, 0)
-
-  // Torso: black waist, white chest plate, black yoke across the shoulders.
-  const spine = joint(root, 0, DIM.spineY, 0)
-  add(spine, taperedBox(0.2, 0.17, 0.145, 0.06, [0.95, 0.95], [1.12, 1.08]), dark, 'torso', 0, 0.055, 0)
-  add(spine, taperedBox(0.33, 0.25, 0.2, 0.065, [0.66, 0.8], [1, 1]), shell, 'torso', 0, 0.232, 0.01)
-  add(spine, taperedBox(0.36, 0.085, 0.185, 0.03, [1, 1], [0.42, 0.72]), dark, 'torso', 0, 0.39, -0.006)
+  add(root, taperedBox(0.2, 0.11, 0.14, 0.03, [0.7, 0.85], [1, 1]), mech, 'pelvis', 0, -0.005, -0.005)
+  add(root, taperedBox(0.16, 0.05, 0.12, 0.018, [1, 1], [1, 1]), dark, 'pelvis', 0, 0.06, 0)
   for (const s of [1, -1]) {
-    add(spine, new SphereGeometry(0.052, 32, 20).scale(1, 0.9, 1), dark, 'torso', s * (DIM.shoulderX - 0.02), DIM.shoulderY + 0.008, -0.004)
+    // Hip yaw actuators sit above each leg.
+    add(root, new CylinderGeometry(0.04, 0.042, 0.06, 28), mech, 'pelvis', s * DIM.hipX, 0.012, 0)
+    add(root, new CylinderGeometry(0.043, 0.043, 0.012, 28), dark, 'pelvis', s * DIM.hipX, 0.045, 0)
   }
 
-  // Neck and head: a black glossy egg with a light seam framing the face.
+  // Torso: black core showing as a yoke and side straps around a flat white
+  // chest plate, a black belly below it, and a narrow waist.
+  const spine = joint(root, 0, DIM.spineY, 0)
+  add(spine, taperedBox(0.18, 0.13, 0.13, 0.04, [0.9, 0.95], [1.1, 1.05]), dark, 'torso', 0, 0.04, 0)
+  add(
+    spine,
+    lathe([
+      [0, 0.062],
+      [0.05, 0.066],
+      [0.078, 0.088],
+      [0.09, 0.12],
+      [0.093, 0.16],
+      [0.086, 0.18],
+      [0, 0.185],
+    ], 1.5, 0.98),
+    dark,
+    'torso',
+  )
+  add(spine, taperedBox(0.32, 0.29, 0.18, 0.05, [0.84, 0.95], [1, 1]), dark, 'torso', 0, 0.288, -0.004)
+  add(spine, taperedBox(0.3, 0.255, 0.19, 0.045, [0.84, 0.96], [1, 1]), shell, 'torso', 0, 0.273, 0.012)
+  // The hood flares from the neck into the shoulders.
+  add(
+    spine,
+    lathe([
+      [0, 0.392],
+      [0.155, 0.398],
+      [0.13, 0.416],
+      [0.088, 0.442],
+      [0.06, 0.474],
+      [0.05, 0.51],
+      [0, 0.52],
+    ], 1, 0.56),
+    dark,
+    'torso',
+    0,
+    0,
+    -0.006,
+  )
+
+  // Neck and head: a black glossy egg with a fine seam around the face.
   const neck = joint(spine, 0, DIM.neckY, 0)
-  add(neck, new CylinderGeometry(0.04, 0.055, 0.07, 24), dark, 'head', 0, 0.0, -0.006)
+  add(neck, new CylinderGeometry(0.044, 0.048, 0.13, 24), dark, 'head', 0, 0.045, -0.006)
   const head = joint(neck, 0, DIM.headY, 0)
   add(head, lathe(HEAD_PROFILE, HEAD_SX, HEAD_SZ), visor, 'head', 0, 0.112, 0.004)
-  const seam = add(head, faceSeam(), glow, 'head', 0, 0.112, 0.004)
+  const seam = add(head, faceSeam(), seamMat, 'head', 0, 0.112, 0.004)
   seam.castShadow = false
 
   // Arms
@@ -230,18 +294,19 @@ export function buildRobot(): Rig {
     const hand: [Group, Group][] = []
     const sh = joint(spine, s * DIM.shoulderX, DIM.shoulderY, 0)
     sh.rotation.order = 'ZXY'
-    add(sh, new SphereGeometry(0.05, 28, 18), dark, 'arm')
+    // The upper-arm shell rounds over the shoulder like a cap.
     add(
       sh,
       lathe([
-        [0, -0.25],
-        [0.034, -0.244],
-        [0.039, -0.215],
-        [0.045, -0.15],
-        [0.054, -0.08],
-        [0.058, -0.035],
-        [0.05, 0.0],
-        [0, 0.012],
+        [0, -0.262],
+        [0.04, -0.256],
+        [0.046, -0.23],
+        [0.053, -0.17],
+        [0.059, -0.08],
+        [0.061, -0.01],
+        [0.056, 0.026],
+        [0.036, 0.048],
+        [0, 0.054],
       ], 1, 0.95),
       shell,
       'arm',
@@ -252,21 +317,34 @@ export function buildRobot(): Rig {
     const el = joint(sh, 0, -DIM.upperArm, 0)
     hinge(el, 0.034, 0.074, dark, 'arm')
     add(el, new SphereGeometry(0.036, 20, 14), dark, 'arm', 0, -0.012, -0.004)
-    add(
-      el,
-      lathe([
-        [0, -0.232],
-        [0.027, -0.226],
-        [0.03, -0.2],
-        [0.038, -0.13],
-        [0.046, -0.07],
-        [0.044, -0.04],
-        [0, -0.032],
-      ], 1, 0.98),
-      shell,
-      'arm',
-    )
+    // Dark forearm: a ribbed pad below the elbow, an actuator along the
+    // inside, and a white shell down the outside.
+    const fore: [number, number][] = [
+      [0, -0.232],
+      [0.026, -0.226],
+      [0.029, -0.2],
+      [0.035, -0.13],
+      [0.04, -0.07],
+      [0.038, -0.04],
+      [0, -0.032],
+    ]
+    add(el, lathe(inset(fore, 0.92), 1, 0.9), dark, 'arm', 0, 0, -0.004)
+    const strip: [number, number][] = [
+      [0, -0.236],
+      [0.028, -0.23],
+      [0.031, -0.2],
+      [0.037, -0.13],
+      [0.039, -0.108],
+      [0, -0.1],
+    ]
+    const outer = add(el, lathe(strip, 1, 0.9, 0.5), shell, 'arm', 0, 0, -0.004)
+    outer.rotation.y = (s * Math.PI) / 2
+    for (let k = 0; k < 4; k++) {
+      add(el, new RoundedBoxGeometry(0.056, 0.016, 0.02, 2, 0.006), dark, 'arm', 0, -0.045 - k * 0.019, 0.032)
+    }
+    add(el, new CapsuleGeometry(0.013, 0.1, 4, 12), mech, 'arm', -s * 0.02, -0.15, 0.022)
     const wr = joint(el, 0, -DIM.forearm, 0)
+    wr.scale.setScalar(1.12)
     add(wr, new CylinderGeometry(0.024, 0.027, 0.04, 20), dark, 'arm', 0, 0.006, 0)
     add(wr, new RoundedBoxGeometry(0.032, 0.088, 0.078, 3, 0.013), dark, 'arm', 0, -0.054, 0)
     for (let f = 0; f < 4; f++) {
@@ -298,51 +376,47 @@ export function buildRobot(): Rig {
   const ankle: Group[] = []
   for (const s of [1, -1]) {
     const hp = joint(root, s * DIM.hipX, DIM.hipY, 0)
-    hinge(hp, 0.052, 0.07, mech, 'leg', 0, -0.004)
-    add(hp, new SphereGeometry(0.052, 24, 16), dark, 'leg')
-    add(
-      hp,
-      lathe([
-        [0, -0.372],
-        [0.042, -0.366],
-        [0.048, -0.33],
-        [0.06, -0.24],
-        [0.073, -0.14],
-        [0.079, -0.08],
-        [0.074, -0.04],
-        [0, -0.028],
-      ], 1, 1.04),
-      shell,
-      'leg',
-      0,
-      0,
-      0.006,
-    )
+    // Exposed hip actuators: pitch across the joint, roll facing forward.
+    hinge(hp, 0.05, 0.08, mech, 'leg', 0, -0.006)
+    const roll = add(hp, new CylinderGeometry(0.047, 0.047, 0.05, 32), mech, 'leg', s * 0.004, 0.006, 0.03)
+    roll.rotation.x = Math.PI / 2
+    const cap = add(hp, new CylinderGeometry(0.036, 0.036, 0.008, 32), dark, 'leg', s * 0.004, 0.006, 0.058)
+    cap.rotation.x = Math.PI / 2
+    // White shell over the front of the thigh, dark structure behind.
+    const thigh: [number, number][] = [
+      [0, -0.372],
+      [0.043, -0.366],
+      [0.05, -0.33],
+      [0.063, -0.24],
+      [0.074, -0.15],
+      [0.077, -0.11],
+      [0.068, -0.078],
+      [0, -0.068],
+    ]
+    add(hp, lathe(inset(thigh, 0.9), 1, 1.02), dark, 'leg', 0, 0, 0.004)
+    // The opening faces back and in, so a strip of black shows between the legs.
+    add(hp, lathe(thigh, 1, 1.02, 0.78), shell, 'leg', 0, 0, 0.012).rotation.y = s * 0.5
     const kn = joint(hp, 0, -DIM.thigh, 0)
-    hinge(kn, 0.046, 0.094, dark, 'leg')
-    add(kn, new RoundedBoxGeometry(0.072, 0.085, 0.04, 3, 0.016), dark, 'leg', 0, -0.006, 0.03)
-    add(
-      kn,
-      lathe([
-        [0, -0.365],
-        [0.032, -0.358],
-        [0.037, -0.32],
-        [0.046, -0.21],
-        [0.052, -0.13],
-        [0.05, -0.08],
-        [0, -0.062],
-      ], 1, 1.04),
-      shell,
-      'leg',
-      0,
-      0,
-      0.004,
-    )
-    add(kn, new CapsuleGeometry(0.024, 0.17, 4, 12), mech, 'leg', 0, -0.2, -0.03)
+    hinge(kn, 0.044, 0.094, dark, 'leg', 0, -0.012)
+    // The shin shell rises over the knee as a cap; actuators run behind the calf.
+    const shin: [number, number][] = [
+      [0, -0.392],
+      [0.03, -0.386],
+      [0.034, -0.34],
+      [0.044, -0.21],
+      [0.05, -0.12],
+      [0.051, -0.06],
+      [0.042, -0.025],
+      [0, -0.012],
+    ]
+    add(kn, lathe(inset(shin, 0.86), 1, 1.04), dark, 'leg', 0, 0, 0.004)
+    add(kn, lathe(shin, 1, 1.04, 0.7), shell, 'leg', 0, 0, 0.01).rotation.y = s * 0.45
+    for (const k of [1, -1]) {
+      add(kn, new CapsuleGeometry(0.017, 0.17, 4, 12), mech, 'leg', k * 0.021, -0.2, -0.03)
+    }
     const an = joint(kn, 0, -DIM.shin, 0)
-    hinge(an, 0.03, 0.07, dark, 'leg')
-    add(an, new SphereGeometry(0.03, 20, 14), dark, 'leg')
-    add(an, taperedBox(0.084, 0.048, 0.225, 0.02, [1, 1], [0.92, 0.9]), dark, 'leg', 0, -DIM.ankleH + 0.024, 0.042)
+    hinge(an, 0.026, 0.064, dark, 'leg')
+    add(an, shoe(0.09, 0.078, 0.235), graphite, 'leg', 0, -DIM.ankleH + 0.039, 0.042)
     hip.push(hp)
     knee.push(kn)
     ankle.push(an)
@@ -362,10 +436,9 @@ export function buildRobot(): Rig {
     fingers,
     thumb: thumbs,
     meshes,
-    glow,
     dispose() {
       for (const g of geometries) g.dispose()
-      for (const m of [shell, dark, mech, visor, glow]) m.dispose()
+      for (const m of [shell, dark, mech, visor, graphite, seamMat]) m.dispose()
     },
   }
 }

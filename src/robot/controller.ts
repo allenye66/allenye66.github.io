@@ -1579,7 +1579,7 @@ export class Controller {
   /** Head yaw and pitch, relative to the pelvis, to look at a point. */
   private headAngles(t: Vector3, F: Vector2, L: Vector2): [number, number] {
     const rx = t.x - this.c.x
-    const ry = t.y - (this.pelvisH + 0.64)
+    const ry = t.y - (this.pelvisH + 0.67)
     const rz = t.z - this.c.y
     const lx = rx * L.x + rz * L.y
     const lz = rx * F.x + rz * F.y
