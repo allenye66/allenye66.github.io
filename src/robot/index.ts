@@ -134,8 +134,6 @@ export function mountRobot(container: HTMLElement): () => void {
 
   // ------------------------------------------------------------ framing
 
-  let metersPerPx = 0.003
-  let viewH = 3
   function frame() {
     const w = container.clientWidth
     const h = container.clientHeight
@@ -147,7 +145,7 @@ export function mountRobot(container: HTMLElement): () => void {
     const frac = portrait ? 0.5 : 0.6
     const bottom = portrait ? 0.07 : 0.09
     const tanHalf = Math.tan(((FOV / 2) * Math.PI) / 180)
-    viewH = 1.76 / frac
+    const viewH = 1.76 / frac
     const D = viewH / (2 * tanHalf)
     const elev = 0.07
     const alpha = Math.atan((1 - 2 * bottom) * tanHalf)
@@ -159,7 +157,6 @@ export function mountRobot(container: HTMLElement): () => void {
     const shift = clamp((aspect - 0.9) * 0.45, 0, 0.32)
     camera.projectionMatrix.elements[8] = -shift
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert()
-    metersPerPx = viewH / h
     ctl.viewer.copy(camera.position)
   }
   frame()
@@ -211,7 +208,7 @@ export function mountRobot(container: HTMLElement): () => void {
     part: Part
     arm: number
     moved: boolean
-    samples: { x: number; y: number; t: number }[]
+    samples: { p: Vector3; t: number }[]
   }
   let grab: Grab | null = null
 
@@ -258,24 +255,18 @@ export function mountRobot(container: HTMLElement): () => void {
     hoverDirty = true
 
     if (grab && e.pointerId === grab.id) {
-      const dx = e.clientX - grab.x0
-      const dy = e.clientY - grab.y0
-      grab.samples.push({ x: e.clientX, y: e.clientY, t: now })
-      if (grab.samples.length > 12) grab.samples.shift()
-      if (!grab.moved && Math.hypot(dx, dy) > 6) {
+      if (!grab.moved && Math.hypot(e.clientX - grab.x0, e.clientY - grab.y0) > 6) {
         grab.moved = true
-        ctl.startDrag(grab.hit, grab.part === 'arm' ? grab.arm : -1)
+        ctl.startDrag(grab.hit, grab.part === 'arm' ? grab.arm : -1, grab.part)
       }
       if (grab.moved) {
-        cameraBasis()
-        const target = grab.hit
-          .clone()
-          .addScaledVector(camRight, dx * metersPerPx)
-          .addScaledVector(camFwd, -dy * metersPerPx * 1.6)
-        target.y = grab.hit.y - dy * metersPerPx * 0.5
-        target.x = clamp(target.x, -6, 6)
-        target.z = clamp(target.z, -5, camera.position.z - 4)
-        ctl.updateDrag(target)
+        // The grabbed point follows the pointer across the upright plane it started on.
+        const t = rayToPlane(grab.hit, new Vector3())
+        t.x = clamp(t.x, ctl.home.x - 6, ctl.home.x + 6)
+        t.y = clamp(t.y, 0.05, 2.6)
+        ctl.updateDrag(t)
+        grab.samples.push({ p: t, t: now })
+        if (grab.samples.length > 12) grab.samples.shift()
       }
     }
 
@@ -349,7 +340,7 @@ export function mountRobot(container: HTMLElement): () => void {
       part: hit.object.userData.part as Part,
       arm: armIndex(hit.object),
       moved: false,
-      samples: [{ x: e.clientX, y: e.clientY, t: now }],
+      samples: [],
     }
   }
 
@@ -393,19 +384,16 @@ export function mountRobot(container: HTMLElement): () => void {
       ctl.poke(dir, POKE * (0.9 + Math.random() * 0.2), g.hit, g.part)
       return
     }
-    // Fling with the pointer's recent velocity.
+    // Let go with the pointer's recent velocity.
     const now = performance.now()
     const recent = g.samples.filter((s) => now - s.t < 90)
-    const fling = new Vector2()
+    const fling = new Vector3()
     if (recent.length >= 2) {
       const a = recent[0]
       const b = recent[recent.length - 1]
       const dt = Math.max((b.t - a.t) / 1000, 0.016)
-      cameraBasis()
-      const vx = ((b.x - a.x) / dt) * metersPerPx
-      const vy = ((b.y - a.y) / dt) * metersPerPx
-      fling.set(camRight.x * vx - camFwd.x * vy * 1.6, camRight.z * vx - camFwd.z * vy * 1.6).multiplyScalar(0.4)
-      if (fling.length() > 2) fling.setLength(2)
+      fling.copy(b.p).sub(a.p).divideScalar(dt)
+      if (fling.length() > 4) fling.setLength(4)
     }
     ctl.endDrag(fling)
   }
@@ -504,9 +492,10 @@ export function mountRobot(container: HTMLElement): () => void {
       ;(b.material as MeshBasicMaterial).opacity = blobBase * clamp(1 - f.lift * 9, 0.15, 1)
     }
     const bodyBlob = blobs[2]
+    const up = Math.max(0, ctl.height - 0.95)
     bodyBlob.position.set(ctl.c.x, 0.0005, ctl.c.y)
-    bodyBlob.scale.set(0.6, 0.42, 1)
-    ;(bodyBlob.material as MeshBasicMaterial).opacity = blobBase * 0.3
+    bodyBlob.scale.set(0.6 * (1 + up * 0.6), 0.42 * (1 + up * 0.6), 1)
+    ;(bodyBlob.material as MeshBasicMaterial).opacity = blobBase * 0.3 * clamp(1 - up * 1.2, 0.15, 1)
     const ballBlob = blobs[3]
     ballBlob.visible = ball.mesh.visible
     if (ballBlob.visible) {

@@ -19,8 +19,10 @@ src/index.css     all styles; colors are CSS vars on :root with a dark-mode over
 src/main.tsx      React entry, rarely touched
 src/Robot.tsx     lazy-loads the 3D robot behind the text
 src/robot/        the robot: model.ts (geometry), controller.ts (balance,
-                  stepping, chasing the ball), gestures.ts (idle fidgets), ball.ts (ball physics and body collisions),
-                  index.ts (three.js scene, camera, pointer input)
+                  stepping, footstep plans to the ball and home, dragging
+                  and lifting), gestures.ts (idle fidgets), ball.ts (ball
+                  physics and body collisions), index.ts (three.js scene,
+                  camera, pointer input)
 index.html        HTML shell: <title>, meta description
 public/           copied as-is into the build (CNAME, images, PDFs)
 public/CNAME      must stay "allenye.me" or the custom domain detaches on deploy
@@ -74,7 +76,9 @@ branch. GitHub Pages rebuilds in about 30–90s.
   trackers unless Allen asks.
 - The homepage robot is the one deliberate exception: an original humanoid
   (no logos or marks) you can poke or drag; it balances with capture-point
-  stepping and walks back to its spot. Easter eggs, both undocumented on the
+  stepping and walks back to its spot. Dragging is a spring on the grabbed
+  point: it leans into the pull, crouches when pushed down, and pulled up
+  hard enough it lifts off, dangles, and lands on its feet when let go. Easter eggs, both undocumented on the
   page: double-click or double-tap empty space to drop a ball it walks over
   and kicks; leave it alone for 15 s and it fidgets.
   In dev, `window.__robot` exposes the controller for debugging.
