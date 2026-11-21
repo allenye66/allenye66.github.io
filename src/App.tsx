@@ -14,7 +14,7 @@ function App() {
         <p>Building Optimus at Tesla.</p>
         <nav>
           {links.map((link) => (
-            <a key={link.href} href={link.href}>
+            <a key={link.href} href={link.href} rel="me">
               {link.label}
             </a>
           ))}

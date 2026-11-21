@@ -23,7 +23,8 @@ src/robot/        the robot: model.ts (geometry), controller.ts (balance,
                   and lifting), gestures.ts (idle fidgets), ball.ts (ball
                   physics and body collisions), index.ts (three.js scene,
                   camera, pointer input)
-index.html        HTML shell: <title>, meta description
+index.html        HTML shell: <title>, meta description, link-preview tags,
+                  Person JSON-LD, and a static copy of the page content
 public/           copied as-is into the build (CNAME, images, PDFs)
 public/CNAME      must stay "allenye.me" or the custom domain detaches on deploy
 public/projects/  unlisted project pages (static HTML), see below
@@ -83,6 +84,11 @@ branch. GitHub Pages rebuilds in about 30–90s.
   and kicks; leave it alone for 15 s and it fidgets.
   In dev, `window.__robot` exposes the controller for debugging.
 - Content lives in `src/App.tsx`. Links go in the `links` array.
+- SEO: `index.html` repeats the name, tagline and links as static HTML so
+  crawlers and link previews see them without JS, and carries the title,
+  description, link-preview tags and Person JSON-LD (`sameAs` lists the
+  profiles). When the content or links change, update both places.
+  `public/robots.txt` and `public/sitemap.xml` list only the homepage.
 - Static files (resume PDF, images) go in `public/` and are referenced by
   absolute path, e.g. `/resume.pdf`.
 - Respect both light and dark mode: add colors as vars in `src/index.css`.

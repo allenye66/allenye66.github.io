@@ -2,13 +2,66 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Allen Ye</title>
-    <meta name="description" content="Allen Ye" />
+    <title>Allen Ye · Software Engineer, Tesla Optimus</title>
+    <meta
+      name="description"
+      content="Allen Ye is a software engineer at Tesla AI, working on Optimus, Tesla's humanoid robot. Based in the San Francisco Bay Area, California."
+    />
+    <link rel="canonical" href="https://allenye.me/" />
+
+    <meta property="og:type" content="profile" />
+    <meta property="og:site_name" content="Allen Ye" />
+    <meta property="og:title" content="Allen Ye · Software Engineer, Tesla Optimus" />
+    <meta
+      property="og:description"
+      content="Software engineer at Tesla AI, working on Optimus. Bay Area, California."
+    />
+    <meta property="og:url" content="https://allenye.me/" />
+    <meta property="profile:first_name" content="Allen" />
+    <meta property="profile:last_name" content="Ye" />
+    <meta name="twitter:card" content="summary" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Person",
+            "@id": "https://allenye.me/#person",
+            "name": "Allen Ye",
+            "givenName": "Allen",
+            "familyName": "Ye",
+            "url": "https://allenye.me/",
+            "jobTitle": "Software Engineer",
+            "worksFor": { "@type": "Organization", "name": "Tesla", "url": "https://www.tesla.com/" },
+            "knowsAbout": ["Tesla Optimus", "Humanoid robots", "Robotics", "Artificial intelligence"],
+            "homeLocation": { "@type": "Place", "name": "San Francisco Bay Area, California" },
+            "sameAs": ["https://github.com/allenye66", "https://www.linkedin.com/in/allenye66/"]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://allenye.me/#website",
+            "name": "Allen Ye",
+            "url": "https://allenye.me/",
+            "about": { "@id": "https://allenye.me/#person" }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Same markup App.tsx renders, so crawlers and link previews see it without JS. -->
+    <div id="root">
+      <main>
+        <h1>Allen Ye</h1>
+        <p>Building Optimus at Tesla.</p>
+        <nav>
+          <a href="https://github.com/allenye66" rel="me">GitHub</a>
+          <a href="https://www.linkedin.com/in/allenye66/" rel="me">LinkedIn</a>
+        </nav>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
